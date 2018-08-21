@@ -22,12 +22,4 @@
 # License along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
 ##############################################################################
-"""This module contains jsonschema files for all of Spack's YAML formats.
-"""
-from llnl.util.lang import list_modules
-
-# Automatically bring in all sub-modules
-__all__ = []
-for mod in list_modules(__path__[0]):
-    __import__('%s.%s' % (__name__, mod))
-    __all__.append(mod)
+"""jsonschema files for all of Spack's YAML formats."""
