@@ -156,7 +156,7 @@ def colify(elts, **options):
             % next(options.iterkeys()))
 
     # elts needs to be an array of strings so we can count the elements
-    elts = [str(elt) for elt in elts]
+    elts = [unicode(elt) for elt in elts]
     if not elts:
         return (0, ())
 

@@ -22,55 +22,38 @@
 # License along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
 ##############################################################################
-"""Schema for env.yaml configuration file.
+"""Schema for configuration merged into one file.
 
-.. literalinclude:: ../spack/schema/env.py
-   :lines: 36-
+.. literalinclude:: ../spack/schema/merged.py
+   :lines: 40-
 """
 from llnl.util.lang import union_dicts
 
-import spack.schema.merged
+import spack.schema.compilers
+import spack.schema.config
+import spack.schema.mirrors
 import spack.schema.modules
+import spack.schema.packages
+import spack.schema.repos
 
 
+#: Properties for inclusion in other schemas
+properties = union_dicts(
+    spack.schema.compilers.properties,
+    spack.schema.config.properties,
+    spack.schema.mirrors.properties,
+    spack.schema.modules.properties,
+    spack.schema.packages.properties,
+    spack.schema.repos.properties
+)
+
+
+#: Full schema with metadata
 schema = {
     '$schema': 'http://json-schema.org/schema#',
-    'title': 'Spack environment file schema',
+    'title': 'Spack merged configuration file schema',
     'definitions': spack.schema.modules.definitions,
     'type': 'object',
     'additionalProperties': False,
-    'patternProperties': {
-        '^env|spack$': {
-            'type': 'object',
-            'default': {},
-            'additionalProperties': False,
-            'properties': union_dicts(
-                # merged configuration scope schemas
-                spack.schema.merged.properties,
-                # extra environment schema properties
-                {
-                    'include': {
-                        'type': 'array',
-                        'items': {
-                            'type': 'string'
-                        },
-                    },
-                    'specs': {
-                        # Specs is a list of specs, which can have
-                        # optional additional properties in a sub-dict
-                        'type': 'array',
-                        'default': [],
-                        'additionalProperties': False,
-                        'items': {
-                            'anyOf': [
-                                {'type': 'string'},
-                                {'type': 'null'},
-                                {'type': 'object'},
-                            ]
-                        }
-                    }
-                }
-            )
-        }
-    }
+    'properties': properties,
 }

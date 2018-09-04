@@ -165,6 +165,21 @@ def has_method(cls, name):
     return False
 
 
+def union_dicts(*dicts):
+    """Use update() to combine all dicts into one.
+
+    Args:
+        dicts (list): list of dictionaries
+
+    Return: (dict): a new ``dict`` ``update()``'d with each ``dict`` in
+        ``dicts``.
+    """
+    result = {}
+    for d in dicts:
+        result.update(d)
+    return result
+
+
 class memoized(object):
     """Decorator that caches the results of a function, storing them
        in an attribute of that function."""
