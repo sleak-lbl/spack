@@ -27,6 +27,7 @@
 import collections
 import os.path
 import shutil
+import sys
 
 from llnl.util import filesystem, tty
 
@@ -123,7 +124,7 @@ def one_spec_or_raise(specs):
     return specs[0]
 
 
-def loads(module_type, specs, args):
+def loads(module_type, specs, args, out=sys.stdout):
     """Prompt the list of modules associated with a list of specs"""
 
     # Get a comprehensive list of specs
@@ -166,7 +167,8 @@ def loads(module_type, specs, args):
         d['comment'] = '' if not args.shell else '# {0}\n'.format(
             spec.format())
         d['name'] = mod
-        print(prompt_template.format(**d))
+        out.write(prompt_template.format(**d))
+        out.write('\n')
 
 
 def find(module_type, specs, args):
