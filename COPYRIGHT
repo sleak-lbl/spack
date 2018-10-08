@@ -1,3 +1,117 @@
+Short version
+---------------
+The Spack project is dual-licensed under Apache-2.0 and MIT terms.
+
+A small number of package.py files (< 37 out of over 2,800) are still
+only available under LGPL-2.1 terms.  They will eventually be relicensed,
+rewritten, or removed as we work towards 100% Apache2/MIT.
+
+Spack was originally distributed under the LGPL-2.1 license. Consent from
+contributors to relicense under Apache-2.0 or MIT is documented at
+https://github.com/spack/spack/issues/9137.
+
+
+Longer version
+----------------
+Copyrights in the Spack project are retained by contributors. No
+copyright assignment is required to contribute to Spack.
+
+The Spack tool, including all parts of this repository EXCEPT
+lib/spack/external and var/spack/packages, is licensed under the Apache
+License, Version 2.0, or the MIT license, at your option.  See
+LICENSE-APACHE or <http://www.apache.org/licenses/LICENSE-2.0>) and
+LICENSE-MIT or <http://opensource.org/licenses/MIT> for further details.
+
+Spack's package files, except as noted in individual files, are also
+licensed under the Apache License, Version 2.0, or the MIT license, at
+your option.  A small number of packages remain under the LGPL-2.1
+license. LGPL-2.1 files will eventually be relicensed, rewritten, or
+removed so that the entire Spack repository can be Apache-2.0/MIT.  To
+see which package files are still under the LGPL-2.1 license, run the
+`spack license list-lgpl` command.
+
+
+SPDX usage
+----------------
+Individual files contain SPDX tags instead of the full license text.
+This enables machine processing of license information based on the SPDX
+License Identifiers that are available here: https://spdx.org/licenses/
+
+Files that are dual-licensed as Apache-2.0 OR MIT contain the following
+text in the license header:
+
+    SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
+Files under LGPL-2.1 contain this in the license header:
+
+    SPDX-License-Identifier: LGPL-2.1-only
+
+
+External Packages
+-------------------
+Spack bundles its external dependencies in lib/spack/external.  These are
+covered by various permissive licenses.  A summary listing follows.  See
+the license included with each package for full details.
+
+PackageName: argparse
+PackageHomePage: https://pypi.python.org/pypi/argparse
+PackageLicenseDeclared: Python-2.0
+
+PackageName: ctest_log_parser
+PackageHomePage: https://github.com/Kitware/CMake
+PackageLicenseDeclared: BSD-3-Clause
+
+PackageName: distro
+PackageHomePage: https://pypi.python.org/pypi/distro
+PackageLicenseDeclared: Apache-2.0
+
+PackageName: functools
+PackageHomePage: https://github.com/python/cpython/blob/2.7/Lib/functools.py
+PackageLicenseDeclared: Python-2.0
+
+PackageName: jinja2
+PackageHomePage: https://pypi.python.org/pypi/Jinja2
+PackageLicenseDeclared: BSD-3-Clause
+
+PackageName: jsonschema
+PackageHomePage: https://pypi.python.org/pypi/jsonschema
+PackageLicenseDeclared: MIT
+
+PackageName: markupsafe
+PackageHomePage: https://pypi.python.org/pypi/MarkupSafe
+PackageLicenseDeclared: BSD-3-Clause
+
+PackageName: orderddict
+Homepage: https://pypi.org/project/ordereddict/
+PackageLicenseDeclared: MIT
+
+PackageName: py
+PackageHomePage: https://pypi.python.org/pypi/py
+PackageLicenseDeclared: MIT
+
+PackageName: pyqver
+PackageHomePage: https://github.com/ghewgill/pyqver
+PackageLicenseDeclared: BSD-3-Clause
+
+PackageName: pytest
+PackageHomePage: https://pypi.python.org/pypi/pytest
+PackageLicenseDeclared: MIT
+
+PackageName: ruamel.yaml
+PackageHomePage: https://yaml.readthedocs.io/
+PackageLicenseDeclared: MIT
+
+PackageName: six
+PackageHomePage: https://pypi.python.org/pypi/six
+PackageLicenseDeclared: MIT
+
+
+LGPL License
+-------------------
+For the packages licensed under LGPL-2.1, the LGPL license, version 2.1,
+is reproduced here.  This will be removed in a future Spack version, when
+all LGPL package recipes have been removed.
+
 		  GNU LESSER GENERAL PUBLIC LICENSE
 		       Version 2.1, February 1999
 
@@ -146,7 +260,7 @@ such a program is covered only if its contents constitute a work based
 on the Library (independent of the use of the Library in a tool for
 writing it).  Whether that is true depends on what the Library does
 and what the program that uses the Library does.
-  
+
   1. You may copy and distribute verbatim copies of the Library's
 complete source code as you receive it, in any medium, provided that
 you conspicuously and appropriately publish on each copy an
@@ -500,4 +614,3 @@ necessary.  Here is a sample; alter the names:
   Ty Coon, President of Vice
 
 That's all there is to it!
-
