@@ -37,7 +37,7 @@ class Mpich(AutotoolsPackage):
         'pmi',
         default='pmi',
         description='''PMI interface.''',
-        values=('off', 'pmi', 'pmi2', 'pmix'),
+        values=('off', 'pmi', 'pmi2', 'pmix', 'slurm'),
         multi=False
     )
     variant(
@@ -181,6 +181,8 @@ spack package at this time.''',
             config_args.append('--with-pmi=simple')
         elif 'pmi=pmi2' in spec:
             config_args.append('--with-pmi=pmi2/simple')
+        elif 'pmi=slurm' in spec:
+            config_args.append('--with-pmi=slurm')
         elif 'pmi=pmix' in spec:
             config_args.append('--with-pmix={0}'.format(spec['pmix'].prefix))
 
