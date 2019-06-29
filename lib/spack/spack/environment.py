@@ -593,7 +593,7 @@ class Environment(object):
         elif not spack.repo.path.exists(spec.name):
             raise SpackEnvironmentError('no such package: %s' % spec.name)
 
-        existing = set(s for s in self.user_specs if s.name == spec.name)
+        existing = set(s for s in self.user_specs if s == spec)
         if not existing:
             self.user_specs.append(spec)
         return bool(not existing)
@@ -605,7 +605,7 @@ class Environment(object):
         # try abstract specs first
         matches = []
         if not query_spec.concrete:
-            matches = [s for s in self.user_specs if s.satisfies(query_spec)]
+            matches = [s for s in self.user_specs if s == query_spec]
 
         if not matches:
             # concrete specs match against concrete specs in the env
