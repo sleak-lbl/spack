@@ -19,6 +19,11 @@ class ArmForge(Package):
     #       versions (and checksums) based on the target platform shows up
 
     version(
+        "19.0.5-Suse-15-x86_64",
+        sha256="174e624e758c29dad8f566bacf808f471011797c2439112f3a4f9dfcbf207e26",
+        url="http://content.allinea.com/downloads/arm-forge-19.0.5-Suse-15-x86_64.tar",
+    )
+    version(
         "19.0.4-linux-rhel6-x86_64",
         sha256="0b0b6ed5c3d6833bad46d5ea84346cd46f0e4b3020c31f2fd4318b75ddaf01aa",
         url="http://content.allinea.com/downloads/arm-forge-19.0.4-Redhat-6.0-x86_64.tar",
@@ -134,7 +139,8 @@ class ArmForge(Package):
         "ALLINEA_LICENSE_FILE",
         "ALLINEA_LICENCE_FILE",
     ]
-    license_url = "http://www.allinea.com/user-guide/forge/Installation.html"
+    #license_url = "http://www.allinea.com/user-guide/forge/Installation.html"
+    license_url = "https://developer.arm.com/docs/101169/latest/using-arm-licence-server"
 
     def install(self, spec, prefix):
         os.system("./textinstall.sh --accept-licence " + prefix)
