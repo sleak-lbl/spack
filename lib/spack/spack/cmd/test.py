@@ -1,57 +1,46 @@
-##############################################################################
-# Copyright (c) 2013-2016, Lawrence Livermore National Security, LLC.
-# Produced at the Lawrence Livermore National Laboratory.
+# Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+# Spack Project Developers. See the top-level COPYRIGHT file for details.
 #
-# This file is part of Spack.
-# Created by Todd Gamblin, tgamblin@llnl.gov, All rights reserved.
-# LLNL-CODE-647188
-#
-# For details, see https://github.com/llnl/spack
-# Please also see the LICENSE file for our notice and the LGPL.
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License (as
-# published by the Free Software Foundation) version 2.1, February 1999.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the IMPLIED WARRANTY OF
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the terms and
-# conditions of the GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public
-# License along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
-##############################################################################
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
+from __future__ import print_function
+
 import sys
 import os
 import re
 import argparse
 import pytest
-from StringIO import StringIO
+from six import StringIO
 
-from llnl.util.filesystem import *
+from llnl.util.filesystem import working_dir
 from llnl.util.tty.colify import colify
 
-import spack
+import spack.paths
 
-description = "A thin wrapper around the pytest command."
+description = "run spack's unit tests"
+section = "developer"
+level = "long"
 
 
 def setup_parser(subparser):
     subparser.add_argument(
         '-H', '--pytest-help', action='store_true', default=False,
-        help="print full pytest help message, showing advanced options.")
+        help="print full pytest help message, showing advanced options")
 
     list_group = subparser.add_mutually_exclusive_group()
     list_group.add_argument(
         '-l', '--list', action='store_true', default=False,
-        help="list basic test names.")
+        help="list basic test names")
     list_group.add_argument(
         '-L', '--long-list', action='store_true', default=False,
-        help="list the entire hierarchy of tests.")
+        help="list the entire hierarchy of tests")
+    subparser.add_argument(
+        '--extension', default=None,
+        help="run test for a given Spack extension"
+    )
     subparser.add_argument(
         'tests', nargs=argparse.REMAINDER,
-        help="list of tests to run (will be passed to pytest -k).")
+        help="list of tests to run (will be passed to pytest -k)")
 
 
 def do_list(args, unknown_args):
@@ -79,7 +68,7 @@ def do_list(args, unknown_args):
                 output_lines.append(
                     os.path.basename(name).replace('.py', ''))
         else:
-            print indent + name
+            print(indent + name)
 
     if args.list:
         colify(output_lines)
@@ -92,8 +81,16 @@ def test(parser, args, unknown_args):
         pytest.main(['-h'])
         return
 
-    # pytest.ini lives in the root of the sapck repository.
-    with working_dir(spack.prefix):
+    # The default is to test the core of Spack. If the option `--extension`
+    # has been used, then test that extension.
+    pytest_root = spack.paths.test_path
+    if args.extension:
+        target = args.extension
+        extensions = spack.config.get('config:extensions')
+        pytest_root = spack.extensions.path_for_extension(target, *extensions)
+
+    # pytest.ini lives in the root of the spack repository.
+    with working_dir(pytest_root):
         # --list and --long-list print the test output better.
         if args.list or args.long_list:
             do_list(args, unknown_args)

@@ -1,3 +1,8 @@
+.. Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+   Spack Project Developers. See the top-level COPYRIGHT file for details.
+
+   SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
 =========
 Workflows
 =========
@@ -33,24 +38,12 @@ possible realization of a particular package, out of combinatorially
 many other realizations.  For example, here is a concrete spec
 instantiated from ``curl``:
 
-.. code-block:: console
-
-   curl@7.50.1%gcc@5.3.0 arch=linux-SuSE11-x86_64
-       ^openssl@system%gcc@5.3.0 arch=linux-SuSE11-x86_64
-       ^zlib@1.2.8%gcc@5.3.0 arch=linux-SuSE11-x86_64
+.. command-output:: spack spec curl
 
 Spack's core concretization algorithm generates concrete specs by
 instantiating packages from its repo, based on a set of "hints",
 including user input and the ``packages.yaml`` file.  This algorithm
-may be accessed at any time with the ``spack spec`` command.  For
-example:
-
-.. code-block:: console
-
-   $ spack spec curl
-     curl@7.50.1%gcc@5.3.0 arch=linux-SuSE11-x86_64
-         ^openssl@system%gcc@5.3.0 arch=linux-SuSE11-x86_64
-         ^zlib@1.2.8%gcc@5.3.0 arch=linux-SuSE11-x86_64
+may be accessed at any time with the ``spack spec`` command.
 
 Every time Spack installs a package, that installation corresponds to
 a concrete spec.  Only a vanishingly small fraction of possible
@@ -68,7 +61,7 @@ variant, compiler, etc.  For example, the following set is consistent:
 .. code-block:: console
 
    curl@7.50.1%gcc@5.3.0 arch=linux-SuSE11-x86_64
-       ^openssl@system%gcc@5.3.0 arch=linux-SuSE11-x86_64
+       ^openssl@1.0.2k%gcc@5.3.0 arch=linux-SuSE11-x86_64
        ^zlib@1.2.8%gcc@5.3.0 arch=linux-SuSE11-x86_64
    zlib@1.2.8%gcc@5.3.0 arch=linux-SuSE11-x86_64
 
@@ -77,7 +70,7 @@ The following set is not consistent:
 .. code-block:: console
 
    curl@7.50.1%gcc@5.3.0 arch=linux-SuSE11-x86_64
-       ^openssl@system%gcc@5.3.0 arch=linux-SuSE11-x86_64
+       ^openssl@1.0.2k%gcc@5.3.0 arch=linux-SuSE11-x86_64
        ^zlib@1.2.8%gcc@5.3.0 arch=linux-SuSE11-x86_64
    zlib@1.2.7%gcc@5.3.0 arch=linux-SuSE11-x86_64
 
@@ -182,7 +175,7 @@ of usage:
 
 .. code-block:: sh
 
-   #!/bin/sh
+   #!/bin/bash
 
    compilers=(
        %gcc
@@ -288,11 +281,11 @@ have some drawbacks:
 2. The ``spack spec`` and ``spack install`` commands use a
    sophisticated concretization algorithm that chooses the "best"
    among several options, taking into account ``packages.yaml`` file.
-   The ``spack load`` and ``spack module loads`` commands, on the
+   The ``spack load`` and ``spack module tcl loads`` commands, on the
    other hand, are not very smart: if the user-supplied spec matches
-   more than one installed package, then ``spack module loads`` will
+   more than one installed package, then ``spack module tcl loads`` will
    fail. This may change in the future.  For now, the workaround is to
-   be more specific on any ``spack module loads`` lines that fail.
+   be more specific on any ``spack module tcl loads`` lines that fail.
 
 
 """"""""""""""""""""""
@@ -302,7 +295,7 @@ Generated Load Scripts
 Another problem with using `spack load` is, it is slow; a typical user
 environment could take several seconds to load, and would not be
 appropriate to put into ``.bashrc`` directly.  It is preferable to use
-a series of ``spack module loads`` commands to pre-compute which
+a series of ``spack module tcl loads`` commands to pre-compute which
 modules to load.  These can be put in a script that is run whenever
 installed Spack packages change.  For example:
 
@@ -313,7 +306,7 @@ installed Spack packages change.  For example:
    # Generate module load commands in ~/env/spackenv
 
    cat <<EOF | /bin/sh >$HOME/env/spackenv
-   FIND='spack module loads --prefix linux-SuSE11-x86_64/'
+   FIND='spack module tcl loads --prefix linux-SuSE11-x86_64/'
 
    \$FIND modele-utils
    \$FIND emacs
@@ -358,16 +351,16 @@ Users may now put ``source ~/env/spackenv`` into ``.bashrc``.
    Some module systems put a prefix on the names of modules created
    by Spack.  For example, that prefix is ``linux-SuSE11-x86_64/`` in
    the above case.  If a prefix is not needed, you may omit the
-   ``--prefix`` flag from ``spack module loads``.
+   ``--prefix`` flag from ``spack module tcl loads``.
 
 
 """""""""""""""""""""""
 Transitive Dependencies
 """""""""""""""""""""""
 
-In the script above, each ``spack module loads`` command generates a
+In the script above, each ``spack module tcl loads`` command generates a
 *single* ``module load`` line.  Transitive dependencies do not usually
-need to be loaded, only modules the user needs in in ``$PATH``.  This is
+need to be loaded, only modules the user needs in ``$PATH``.  This is
 because Spack builds binaries with RPATH.  Spack's RPATH policy has
 some nice features:
 
@@ -406,38 +399,13 @@ Unfortunately, Spack's RPATH support does not work in all case.  For example:
 In cases where RPATH support doesn't make things "just work," it can
 be necessary to load a module's dependencies as well as the module
 itself.  This is done by adding the ``--dependencies`` flag to the
-``spack module loads`` command.  For example, the following line,
+``spack module tcl loads`` command.  For example, the following line,
 added to the script above, would be used to load SciPy, along with
 Numpy, core Python, BLAS/LAPACK and anything else needed:
 
 .. code-block:: sh
 
-   spack module loads --dependencies py-scipy
-
-^^^^^^^^^^^^^^^^^^
-Extension Packages
-^^^^^^^^^^^^^^^^^^
-
-:ref:`packaging_extensions` may be used as an alternative to loading
-Python (and similar systems) packages directly.  If extensions are
-activated, then ``spack load python`` will also load all the
-extensions activated for the given ``python``.  This reduces the need
-for users to load a large number of modules.
-
-However, Spack extensions have two potential drawbacks:
-
-#. Activated packages that involve compiled C extensions may still
-   need their dependencies to be loaded manually.  For example,
-   ``spack load openblas`` might be required to make ``py-numpy``
-   work.
-
-#. Extensions "break" a core feature of Spack, which is that multiple
-   versions of a package can co-exist side-by-side.  For example,
-   suppose you wish to run a Python package in two different
-   environments but the same basic Python --- one with
-   ``py-numpy@1.7`` and one with ``py-numpy@1.8``.  Spack extensions
-   will not support this potential debugging use case.
-
+   spack module tcl loads --dependencies py-scipy
 
 ^^^^^^^^^^^^^^
 Dummy Packages
@@ -459,6 +427,8 @@ it.  A disadvantage is the set of packages will be consistent; this
 means you cannot load up two applications this way if they are not
 consistent with each other.
 
+.. _filesystem-views:
+
 ^^^^^^^^^^^^^^^^
 Filesystem Views
 ^^^^^^^^^^^^^^^^
@@ -467,11 +437,23 @@ Filesystem views offer an alternative to environment modules, another
 way to assemble packages in a useful way and load them into a user's
 environment.
 
-A filesystem view is a single directory tree that is the union of the
-directory hierarchies of a number of installed packages; it is similar
-to the directory hiearchy that might exist under ``/usr/local``.  The
-files of the view's installed packages are brought into the view by
-symbolic or hard links, referencing the original Spack installation.
+A single-prefix filesystem view is a single directory tree that is the
+union of the directory hierarchies of a number of installed packages;
+it is similar to the directory hiearchy that might exist under
+``/usr/local``.  The files of the view's installed packages are
+brought into the view by symbolic or hard links, referencing the
+original Spack installation.
+
+A combinatorial filesystem view can contain more software than a
+single-prefix view. Combinatorial filesystem views are created by
+defining a projection for each spec or set of specs. The syntax for
+this will be discussed in the section for the ``spack view`` command
+under `adding_projections_to_views`_.
+
+The projection for a spec or set of specs specifies the naming scheme
+for the directory structure under the root of the view into which the
+package will be linked. For example, the spec ``zlib@1.2.8%gcc@4.4.7``
+could be projected to ``MYVIEW/zlib-1.2.8-gcc``.
 
 When software is built and installed, absolute paths are frequently
 "baked into" the software, making it non-relocatable.  This happens
@@ -488,10 +470,11 @@ if the view is built with hardlinks.
 
 .. FIXME: reference the relocation work of Hegner and Gartung (PR #1013)
 
+.. _cmd-spack-view:
 
-""""""""""""""""""""""
-Using Filesystem Views
-""""""""""""""""""""""
+""""""""""""""
+``spack view``
+""""""""""""""
 
 A filesystem view is created, and packages are linked in, by the ``spack
 view`` command's ``symlink`` and ``hardlink`` sub-commands.  The
@@ -536,6 +519,51 @@ files in the ``cmake`` package while retaining its dependencies.
     When packages are removed from a view, empty directories are
     purged.
 
+.. _adding_projections_to_views:
+
+""""""""""""""""""""""""""""
+Controlling View Projections
+""""""""""""""""""""""""""""
+
+The default projection into a view is to link every package into the
+root of the view. This can be changed by adding a ``projections.yaml``
+configuration file to the view. The projection configuration file for
+a view located at ``/my/view`` is stored in
+``/my/view/.spack/projections.yaml``.
+
+When creating a view, the projection configuration file can also be
+specified from the command line using the ``--projection-file`` option
+to the ``spack view`` command.
+
+The projections configuration file is a mapping of partial specs to
+spec format strings, as shown in the example below.
+
+.. code-block:: yaml
+
+   projections:
+     zlib: {name}-{version}
+     ^mpi: {name}-{version}/{^mpi.name}-{^mpi.version}-{compiler.name}-{compiler.version}
+     all: {name}-{version}/{compiler.name}-{compiler.version}
+
+The entries in the projections configuration file must all be either
+specs or the keyword ``all``. For each spec, the projection used will
+be the first non-``all`` entry that the spec satisfies, or ``all`` if
+there is an entry for ``all`` and no other entry is satisfied by the
+spec. Where the keyword ``all`` appears in the file does not
+matter. Given the example above, any spec satisfying ``zlib@1.2.8``
+will be linked into ``/my/view/zlib-1.2.8/``, any spec satisfying
+``hdf5@1.8.10+mpi %gcc@4.9.3 ^mvapich2@2.2`` will be linked into
+``/my/view/hdf5-1.8.10/mvapich2-2.2-gcc-4.9.3``, and any spec
+satisfying ``hdf5@1.8.10~mpi %gcc@4.9.3`` will be linked into
+``/my/view/hdf5-1.8.10/gcc-4.9.3``.
+
+If the keyword ``all`` does not appear in the projections
+configuration file, any spec that does not satisfy any entry in the
+file will be linked into the root of the view as in a single-prefix
+view. Any entries that appear below the keyword ``all`` in the
+projections configuration file will not be used, as all specs will use
+the projection under ``all`` before reaching those entries.
+
 """"""""""""""""""
 Fine-Grain Control
 """"""""""""""""""
@@ -548,7 +576,7 @@ dependencies, but not ``appsy`` itself:
 
 .. code-block:: console
 
-   $ spack view symlink --dependencies yes --exclude appsy appsy
+   $ spack view --dependencies yes --exclude appsy symlink /path/to/MYVIEW/ appsy
 
 Alternately, you wish to create a view whose purpose is to provide
 binary executables to end users.  You only need to include
@@ -557,7 +585,7 @@ dependencies.  In this case, you might use:
 
 .. code-block:: console
 
-   $ spack view symlink --dependencies no cmake
+   $ spack view --dependencies no symlink /path/to/MYVIEW/ cmake
 
 
 """""""""""""""""""""""
@@ -598,6 +626,29 @@ symlinks.  At any time one can delete ``/path/to/MYVIEW`` or use
 ``spack view`` to manage it surgically.  None of this will affect the
 real Spack install area.
 
+^^^^^^^^^^^^^^^^^^
+Global Activations
+^^^^^^^^^^^^^^^^^^
+
+:ref:`cmd-spack-activate` may be used as an alternative to loading
+Python (and similar systems) packages directly or creating a view.
+If extensions are globally activated, then ``spack load python`` will
+also load all the extensions activated for the given ``python``.
+This reduces the need for users to load a large number of modules.
+
+However, Spack global activations have two potential drawbacks:
+
+#. Activated packages that involve compiled C extensions may still
+   need their dependencies to be loaded manually.  For example,
+   ``spack load openblas`` might be required to make ``py-numpy``
+   work.
+
+#. Global activations "break" a core feature of Spack, which is that
+   multiple versions of a package can co-exist side-by-side.  For example,
+   suppose you wish to run a Python package in two different
+   environments but the same basic Python --- one with
+   ``py-numpy@1.7`` and one with ``py-numpy@1.8``.  Spack extensions
+   will not support this potential debugging use case.
 
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 Discussion: Running Binaries
@@ -641,7 +692,7 @@ environments:
   and extension packages.
 
 * Views and activated extensions maintain state that is semantically
-  equivalent to the information in a ``spack module loads`` script.
+  equivalent to the information in a ``spack module tcl loads`` script.
   Administrators might find things easier to maintain without the
   added "heavyweight" state of a view.
 
@@ -798,7 +849,7 @@ for the ``mylib`` package (ellipses for brevity):
        depends_on('cmake', type='build')
        depends_on('doxygen', type='build')
 
-       def configure_args(self):
+       def cmake_args(self):
            spec = self.spec
            return [
                '-DUSE_EVERYTRACE=%s' % ('YES' if '+everytrace' in spec else 'NO'),
@@ -1039,6 +1090,254 @@ or filesystem views.  However, it has some drawbacks:
    integrate Spack explicitly in their workflow.  Not all users are
    willing to do this.
 
+------------------------
+Using Spack on Travis-CI
+------------------------
+
+Spack can be deployed as a provider for userland software in
+`Travis-CI <https://http://travis-ci.org>`_.
+
+A starting-point for a ``.travis.yml`` file can look as follows.
+It uses `caching <https://docs.travis-ci.com/user/caching/>`_ for
+already built environments, so make sure to clean the Travis cache if
+you run into problems.
+
+The main points that are implemented below:
+
+#. Travis is detected as having up to 34 cores available, but only 2
+   are actually allocated for the user. We limit the parallelism of
+   the spack builds in the config.
+   (The Travis yaml parser is a bit buggy on the echo command.)
+
+#. Builds over 10 minutes need to be prefixed with ``travis_wait``.
+   Alternatively, generate output once with ``spack install -v``.
+
+#. Travis builds are non-interactive. This prevents using bash
+   aliases and functions for modules. We fix that by sourcing
+   ``/etc/profile`` first (or running everything in a subshell with
+   ``bash -l -c '...'``).
+
+.. code-block:: yaml
+
+   language: cpp
+   sudo: false
+   dist: trusty
+
+   cache:
+     apt: true
+     directories:
+       - $HOME/.cache
+
+   addons:
+     apt:
+       sources:
+         - ubuntu-toolchain-r-test
+       packages:
+         - g++-4.9
+         - environment-modules
+
+   env:
+     global:
+       - SPACK_ROOT: $HOME/.cache/spack
+       - PATH: $PATH:$HOME/.cache/spack/bin
+
+   before_install:
+     - export CXX=g++-4.9
+     - export CC=gcc-4.9
+     - export FC=gfortran-4.9
+     - export CXXFLAGS="-std=c++11"
+
+   install:
+     - if ! which spack >/dev/null; then
+         mkdir -p $SPACK_ROOT &&
+         git clone --depth 50 https://github.com/spack/spack.git $SPACK_ROOT &&
+         echo -e "config:""\n  build_jobs:"" 2" > $SPACK_ROOT/etc/spack/config.yaml;
+       fi
+     - travis_wait spack install cmake@3.7.2~openssl~ncurses
+     - travis_wait spack install boost@1.62.0~graph~iostream~locale~log~wave
+     - spack clean -a
+     - source /etc/profile &&
+       source $SPACK_ROOT/share/spack/setup-env.sh
+     - spack load cmake
+     - spack load boost
+
+   script:
+     - mkdir -p $HOME/build
+     - cd $HOME/build
+     - cmake $TRAVIS_BUILD_DIR
+     - make -j 2
+     - make test
+
+.. _workflow_create_docker_image:
+
+-----------------------------------
+Using Spack to Create Docker Images
+-----------------------------------
+
+Spack can be the ideal tool to set up images for Docker (and Singularity).
+
+An example ``Dockerfile`` is given below, downloading the latest spack
+version.
+
+The following functionality is prepared:
+
+#. Base image: the example starts from a minimal ubuntu.
+
+#. Installing as root: docker images are usually set up as root.
+   Since some autotools scripts might complain about this being unsafe, we set
+   ``FORCE_UNSAFE_CONFIGURE=1`` to avoid configure errors.
+
+#. Pre-install the spack dependencies, including modules from the packages.
+   This avoids needing to build those from scratch via ``spack bootstrap``.
+   Package installs are followed by a clean-up of the system package index,
+   to avoid outdated information and it saves space.
+
+#. Install spack in ``/usr/local``.
+   Add ``setup-env.sh`` to profile scripts, so commands in *login* shells
+   can use the whole spack functionality, including modules.
+
+#. Install an example package (``tar``).
+   As with system package managers above, ``spack install`` commands should be
+   concatenated with a ``&& spack clean -a`` in order to keep image sizes small.
+
+#. Add a startup hook to an *interactive login shell* so spack modules will be
+   usable.
+
+In order to build and run the image, execute:
+
+.. code-block:: bash
+
+   docker build -t spack .
+   docker run -it spack
+
+.. code-block:: docker
+
+   FROM       ubuntu:16.04
+   MAINTAINER Your Name <someone@example.com>
+
+   # general environment for docker
+   ENV        DEBIAN_FRONTEND=noninteractive \
+              SPACK_ROOT=/usr/local \
+              FORCE_UNSAFE_CONFIGURE=1
+
+   # install minimal spack depedencies
+   RUN        apt-get update \
+              && apt-get install -y --no-install-recommends \
+                 autoconf \
+                 build-essential \
+                 ca-certificates \
+                 coreutils \
+                 curl \
+                 environment-modules \
+                 git \
+                 python \
+                 unzip \
+                 vim \
+              && rm -rf /var/lib/apt/lists/*
+
+   # load spack environment on login
+   RUN        echo "source $SPACK_ROOT/share/spack/setup-env.sh" \
+              > /etc/profile.d/spack.sh
+
+   # spack settings
+   # note: if you wish to change default settings, add files alongside
+   #       the Dockerfile with your desired settings. Then uncomment this line
+   #COPY       packages.yaml modules.yaml $SPACK_ROOT/etc/spack/
+
+   # install spack
+   RUN        curl -s -L https://api.github.com/repos/spack/spack/tarball \
+              | tar xzC $SPACK_ROOT --strip 1
+   # note: at this point one could also run ``spack bootstrap`` to avoid
+   #       parts of the long apt-get install list above
+
+   # install software
+   RUN        spack install tar \
+              && spack clean -a
+
+   # need the modules already during image build?
+   #RUN        /bin/bash -l -c ' \
+   #                spack load tar \
+   #                && which tar'
+
+   # image run hook: the -l will make sure /etc/profile environments are loaded
+   CMD        /bin/bash -l
+
+^^^^^^^^^^^^^^
+Best Practices
+^^^^^^^^^^^^^^
+
+"""
+MPI
+"""
+Due to the dependency on Fortran for OpenMPI, which is the spack default
+implementation, consider adding ``gfortran`` to the ``apt-get install`` list.
+
+Recent versions of OpenMPI will require you to pass ``--allow-run-as-root``
+to your ``mpirun`` calls if started as root user inside Docker.
+
+For execution on HPC clusters, it can be helpful to import the docker
+image into Singularity in order to start a program with an *external*
+MPI. Otherwise, also add ``openssh-server`` to the ``apt-get install`` list.
+
+""""
+CUDA
+""""
+Starting from CUDA 9.0, Nvidia provides minimal CUDA images based on
+Ubuntu.
+Please see `their instructions <https://hub.docker.com/r/nvidia/cuda/>`_.
+Avoid double-installing CUDA by adding, e.g.
+
+.. code-block:: yaml
+
+   packages:
+     cuda:
+       paths:
+         cuda@9.0.176%gcc@5.4.0 arch=linux-ubuntu16-x86_64: /usr/local/cuda
+       buildable: False
+
+to your ``packages.yaml``.
+Then ``COPY`` in that file into the image as in the example above.
+
+Users will either need ``nvidia-docker`` or e.g. Singularity to *execute*
+device kernels.
+
+"""""""""""
+Singularity
+"""""""""""
+Importing and running the image created above into
+`Singularity <http://singularity.lbl.gov/>`_ works like a charm.
+Just use the `docker bootstraping mechanism <http://singularity.lbl.gov/quickstart#bootstrap-recipes>`_:
+
+.. code-block:: none
+
+   Bootstrap: docker
+   From: registry/user/image:tag
+
+   %runscript
+   exec /bin/bash -l
+
+""""""""""""""""""""""
+Docker for Development
+""""""""""""""""""""""
+
+For examples of how we use docker in development, see
+:ref:`docker_for_developers`.
+
+"""""""""""""""""""""""""
+Docker on Windows and OSX
+"""""""""""""""""""""""""
+
+On Mac OS and Windows, docker runs on a hypervisor that is not allocated much
+memory by default, and some spack packages may fail to build due to lack of
+memory. To work around this issue, consider configuring your docker installation
+to use more of your host memory. In some cases, you can also ease the memory
+pressure on parallel builds by limiting the parallelism in your config.yaml.
+
+.. code-block:: yaml
+
+   config:
+     build_jobs: 2
+
 ------------------
 Upstream Bug Fixes
 ------------------
@@ -1055,7 +1354,7 @@ Buggy New Version
 
 Sometimes, the old version of a package works fine, but a new version
 is buggy.  For example, it was once found that `Adios did not build
-with hdf5@1.10 <https://github.com/LLNL/spack/issues/1683>`_.  If the
+with hdf5@1.10 <https://github.com/spack/spack/issues/1683>`_.  If the
 old version of ``hdf5`` will work with ``adios``, the suggested
 procedure is:
 
@@ -1065,7 +1364,7 @@ procedure is:
    .. code-block:: python
 
       # Adios does not build with HDF5 1.10
-      # See: https://github.com/LLNL/spack/issues/1683
+      # See: https://github.com/spack/spack/issues/1683
       depends_on('hdf5@:1.9')
 
 #. Determine whether the problem is with ``hdf5`` or ``adios``, and
@@ -1078,7 +1377,7 @@ procedure is:
    .. code-block:: python
 
       # Adios up to v1.10.0 does not build with HDF5 1.10
-      # See: https://github.com/LLNL/spack/issues/1683
+      # See: https://github.com/spack/spack/issues/1683
       depends_on('hdf5@:1.9', when='@:1.10.0')
       depends_on('hdf5', when='@1.10.1:')
 
@@ -1195,4 +1494,3 @@ Disadvantages:
 
  2. Although patches of a few lines work OK, large patch files can be
     hard to create and maintain.
-

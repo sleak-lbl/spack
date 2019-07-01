@@ -1,101 +1,153 @@
-##############################################################################
-# Copyright (c) 2013-2016, Lawrence Livermore National Security, LLC.
-# Produced at the Lawrence Livermore National Laboratory.
+# Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+# Spack Project Developers. See the top-level COPYRIGHT file for details.
 #
-# This file is part of Spack.
-# Created by Todd Gamblin, tgamblin@llnl.gov, All rights reserved.
-# LLNL-CODE-647188
-#
-# For details, see https://github.com/llnl/spack
-# Please also see the LICENSE file for our notice and the LGPL.
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License (as
-# published by the Free Software Foundation) version 2.1, February 1999.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the IMPLIED WARRANTY OF
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the terms and
-# conditions of the GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public
-# License along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
-##############################################################################
-"""
-This test ensures that all Spack files are Python version 2.6 or less.
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
-Spack was originally 2.7, but enough systems in 2014 are still using
-2.6 on their frontend nodes that we need 2.6 to get adopted.
+"""Check that Spack complies with minimum supported python versions.
+
+We ensure that all Spack files work with Python2 >= 2.6 and Python3 >= 3.0.
+
+We'd like to drop 2.6 support at some point, but there are still many HPC
+systems that ship with RHEL6/CentOS 6, which have Python 2.6 as the
+default version.  Once those go away, we can likely drop 2.6 and increase
+the minimum supported Python 3 version, as well.
 """
+from __future__ import print_function
+
 import os
+import sys
 import re
-import unittest
+
+import pytest
 
 import llnl.util.tty as tty
-import pyqver2
-import spack
 
-spack_max_version = (2, 6)
+import spack.paths
+from spack.paths import lib_path as spack_lib_path
 
 
-class PythonVersionTest(unittest.TestCase):
+#
+# This test uses pyqver, by Greg Hewgill, which is a dual-source module.
+# That means we need to do different checks depending on whether we're
+# running Python 2 or Python 3.
+#
+if sys.version_info[0] < 3:
+    import pyqver2 as pyqver
+    spack_min_supported = (2, 6)
 
-    def pyfiles(self, *search_paths):
-        # first file is the spack script.
-        yield spack.spack_file
+    # Exclude Python 3 versions of dual-source modules when using Python 2
+    exclude_paths = [
+        # Jinja 2 has some 'async def' functions that are not treated correctly
+        # by pyqver.py
+        os.path.join(spack_lib_path, 'external', 'jinja2', 'asyncfilters.py'),
+        os.path.join(spack_lib_path, 'external', 'jinja2', 'asyncsupport.py'),
+        os.path.join(spack_lib_path, 'external', 'yaml', 'lib3'),
+        os.path.join(spack_lib_path, 'external', 'pyqver3.py')]
 
-        # Iterate through the whole spack source tree.
-        for path in search_paths:
-            for root, dirnames, filenames in os.walk(path):
-                for filename in filenames:
-                    if re.match(r'^[^.#].*\.py$', filename):
-                        yield os.path.join(root, filename)
+else:
+    import pyqver3 as pyqver
+    spack_min_supported = (3, 0)
 
-    def package_py_files(self):
-        for name in spack.repo.all_package_names():
-            yield spack.repo.filename_for_package_name(name)
+    # Exclude Python 2 versions of dual-source modules when using Python 3
+    exclude_paths = [
+        # Jinja 2 has some 'async def' functions that are not treated correctly
+        # by pyqver.py
+        os.path.join(spack_lib_path, 'external', 'jinja2', 'asyncfilters.py'),
+        os.path.join(spack_lib_path, 'external', 'jinja2', 'asyncsupport.py'),
+        os.path.join(spack_lib_path, 'external', 'yaml', 'lib'),
+        os.path.join(spack_lib_path, 'external', 'pyqver2.py')]
 
-    def check_python_versions(self, *files):
-        # dict version -> filename -> reasons
-        all_issues = {}
 
-        for fn in files:
-            with open(fn) as pyfile:
-                versions = pyqver2.get_versions(pyfile.read())
-                for ver, reasons in versions.items():
-                    if ver > spack_max_version:
-                        if ver not in all_issues:
-                            all_issues[ver] = {}
-                        all_issues[ver][fn] = reasons
+def pyfiles(search_paths, exclude=()):
+    """Generator that yields all the python files in the search paths.
 
-        if all_issues:
-            tty.error("Spack must run on Python version %d.%d"
-                      % spack_max_version)
+    Args:
+        search_paths (list of str): list of paths to search for python files
+        exclude (list of str): file paths to exclude from search
 
-        for v in sorted(all_issues.keys(), reverse=True):
-            msgs = []
-            for fn in sorted(all_issues[v].keys()):
-                short_fn = fn
-                if fn.startswith(spack.prefix):
-                    short_fn = fn[len(spack.prefix):]
+    Yields:
+        python files in the search path.
+    """
+    # first file is the spack script.
+    yield spack.paths.spack_script
 
-                reasons = [r for r in set(all_issues[v][fn]) if r]
-                for r in reasons:
-                    msgs.append(("%s:%s" % ('spack' + short_fn, r[0]), r[1]))
+    # Iterate through the whole spack source tree.
+    for path in search_paths:
+        for root, dirnames, filenames in os.walk(path):
+            for filename in filenames:
+                realpath = os.path.realpath(os.path.join(root, filename))
+                if any(realpath.startswith(p) for p in exclude):
+                    continue
 
-            tty.error("These files require version %d.%d:" % v)
-            maxlen = max(len(f) for f, prob in msgs)
-            fmt = "%%-%ds%%s" % (maxlen + 3)
-            print fmt % ('File', 'Reason')
-            print fmt % ('-' * (maxlen), '-' * 20)
-            for msg in msgs:
-                print fmt % msg
+                if re.match(r'^[^.#].*\.py$', filename):
+                    yield os.path.join(root, filename)
 
-        self.assertTrue(len(all_issues) == 0)
 
-    def test_core_module_compatibility(self):
-        self.check_python_versions(*self.pyfiles(spack.lib_path))
+def check_python_versions(files):
+    """Check that a set of Python files works with supported Ptyhon versions"""
+    # This is a dict dict mapping:
+    #   version -> filename -> reasons
+    #
+    # Reasons are tuples of (lineno, string), where the string is the
+    # cause for a version incompatibility.
+    all_issues = {}
 
-    def test_package_module_compatibility(self):
-        self.check_python_versions(*self.pyfiles(spack.packages_path))
+    # Parse files and run pyqver on each file.
+    for path in files:
+        with open(path) as pyfile:
+            full_text = pyfile.read()
+        versions = pyqver.get_versions(full_text, path)
+
+        for ver, reasons in versions.items():
+            if ver <= spack_min_supported:
+                continue
+
+            # Record issues. Mark exceptions with '# nopyqver' comment
+            for lineno, cause in reasons:
+                lines = full_text.split('\n')
+                if not re.search(r'#\s*nopyqver\s*$', lines[lineno - 1]):
+                    all_issues.setdefault(ver, {})[path] = reasons
+
+    # Print a message if there are are issues
+    if all_issues:
+        tty.msg("Spack must remain compatible with Python version %d.%d"
+                % spack_min_supported)
+
+    # Print out a table showing which files/linenos require which
+    # python version, and a string describing why.
+    for v in sorted(all_issues.keys(), reverse=True):
+        messages = []
+        for path in sorted(all_issues[v].keys()):
+            short_path = path
+            if path.startswith(spack.paths.prefix):
+                short_path = path[len(spack.paths.prefix):]
+
+            reasons = [r for r in set(all_issues[v][path]) if r]
+            for lineno, cause in reasons:
+                file_line = "%s:%s" % (short_path.lstrip('/'), lineno)
+                messages.append((file_line, cause))
+
+        print()
+        tty.msg("These files require version %d.%d:" % v)
+        maxlen = max(len(f) for f, prob in messages)
+        fmt = "%%-%ds%%s" % (maxlen + 3)
+        print(fmt % ('File', 'Reason'))
+        print(fmt % ('-' * (maxlen), '-' * 20))
+        for msg in messages:
+            print(fmt % msg)
+
+    # Fail this test if there were issues.
+    assert not all_issues
+
+
+@pytest.mark.maybeslow
+def test_core_module_compatibility():
+    """Test that all core spack modules work with supported Python versions."""
+    check_python_versions(
+        pyfiles([spack_lib_path], exclude=exclude_paths))
+
+
+@pytest.mark.maybeslow
+def test_package_module_compatibility():
+    """Test that all spack packages work with supported Python versions."""
+    check_python_versions(pyfiles([spack.paths.packages_path]))

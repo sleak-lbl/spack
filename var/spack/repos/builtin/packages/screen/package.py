@@ -1,38 +1,20 @@
-##############################################################################
-# Copyright (c) 2013-2016, Lawrence Livermore National Security, LLC.
-# Produced at the Lawrence Livermore National Laboratory.
+# Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+# Spack Project Developers. See the top-level COPYRIGHT file for details.
 #
-# This file is part of Spack.
-# Created by Todd Gamblin, tgamblin@llnl.gov, All rights reserved.
-# LLNL-CODE-647188
-#
-# For details, see https://github.com/llnl/spack
-# Please also see the LICENSE file for our notice and the LGPL.
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License (as
-# published by the Free Software Foundation) version 2.1, February 1999.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the IMPLIED WARRANTY OF
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the terms and
-# conditions of the GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public
-# License along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
-##############################################################################
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
 from spack import *
 
 
-class Screen(Package):
+class Screen(AutotoolsPackage):
     """Screen is a full-screen window manager that multiplexes a physical
     terminal between several processes, typically interactive shells.
     """
 
     homepage = "https://www.gnu.org/software/screen/"
-    url      = "http://ftp.gnu.org/gnu/screen/screen-4.3.1.tar.gz"
+    url      = "https://ftpmirror.gnu.org/screen/screen-4.3.1.tar.gz"
 
+    version('4.6.2', 'a0f529d3333b128dfaa324d978ba73a8')
     version('4.3.1', '5bb3b0ff2674e29378c31ad3411170ad')
     version('4.3.0', 'f76d28eadc4caaf6cdff00685ae6ad46')
     version('4.2.1', '419a0594e2b25039239af8b90eda7d92')
@@ -51,8 +33,3 @@ class Screen(Package):
     version('3.7.1', '27cdd29318446561ef7c966041cbd2c9')
 
     depends_on('ncurses')
-
-    def install(self, spec, prefix):
-        configure('--prefix=%s' % prefix)
-        make()
-        make("install")

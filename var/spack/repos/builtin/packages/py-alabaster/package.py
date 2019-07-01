@@ -1,27 +1,8 @@
-##############################################################################
-# Copyright (c) 2013-2016, Lawrence Livermore National Security, LLC.
-# Produced at the Lawrence Livermore National Laboratory.
+# Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+# Spack Project Developers. See the top-level COPYRIGHT file for details.
 #
-# This file is part of Spack.
-# Created by Todd Gamblin, tgamblin@llnl.gov, All rights reserved.
-# LLNL-CODE-647188
-#
-# For details, see https://github.com/llnl/spack
-# Please also see the LICENSE file for our notice and the LGPL.
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License (as
-# published by the Free Software Foundation) version 2.1, February 1999.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the IMPLIED WARRANTY OF
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the terms and
-# conditions of the GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public
-# License along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
-##############################################################################
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
 from spack import *
 
 
@@ -29,10 +10,13 @@ class PyAlabaster(PythonPackage):
     """Alabaster is a visually (c)lean, responsive, configurable theme
     for the Sphinx documentation system."""
 
-    homepage = "https://pypi.python.org/pypi/alabaster"
-    url      = "https://pypi.python.org/packages/source/a/alabaster/alabaster-0.7.9.tar.gz"
+    homepage = "https://alabaster.readthedocs.io/"
+    url      = "https://pypi.io/packages/source/a/alabaster/alabaster-0.7.10.tar.gz"
 
-    version('0.7.9', 'b29646a8bbe7aa52830375b7d17b5d7a',
-            url="https://pypi.python.org/packages/71/c3/70da7d8ac18a4f4c502887bd2549e05745fa403e2cd9d06a8a9910a762bc/alabaster-0.7.9.tar.gz")
+    import_modules = ['alabaster']
+
+    version('0.7.12', sha256='a661d72d58e6ea8a57f7a86e37d86716863ee5e92788398526d58b26a4e4dc02')
+    version('0.7.10', '7934dccf38801faa105f6e7b4784f493')
+    version('0.7.9',  'b29646a8bbe7aa52830375b7d17b5d7a')
 
     depends_on('py-setuptools', type='build')

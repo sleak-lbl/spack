@@ -1,36 +1,18 @@
-##############################################################################
-# Copyright (c) 2013-2016, Lawrence Livermore National Security, LLC.
-# Produced at the Lawrence Livermore National Laboratory.
+# Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+# Spack Project Developers. See the top-level COPYRIGHT file for details.
 #
-# This file is part of Spack.
-# Created by Todd Gamblin, tgamblin@llnl.gov, All rights reserved.
-# LLNL-CODE-647188
-#
-# For details, see https://github.com/llnl/spack
-# Please also see the LICENSE file for our notice and the LGPL.
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License (as
-# published by the Free Software Foundation) version 2.1, February 1999.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the IMPLIED WARRANTY OF
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the terms and
-# conditions of the GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public
-# License along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
-##############################################################################
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
 import os
 import re
 import llnl.util.tty as tty
-from spack import build_env_path
+import spack.config
+from spack.paths import build_env_path
 from spack.util.executable import which
 from spack.architecture import Platform, Target, NoPlatformError
-from spack.operating_systems.linux_distro import LinuxDistro
+from spack.operating_systems.cray_frontend import CrayFrontend
 from spack.operating_systems.cnl import Cnl
-from llnl.util.filesystem import join_path
+from spack.util.module_cmd import module
 
 
 def _get_modules_in_modulecmd_output(output):
@@ -69,6 +51,10 @@ class Cray(Platform):
             name = target.replace('-', '_')
             self.add_target(name, Target(name, 'craype-%s' % target))
 
+        self.add_target("x86_64", Target("x86_64"))
+        self.add_target("front_end", Target("x86_64"))
+        self.front_end = "x86_64"
+
         # Get aliased targets from config or best guess from environment:
         for name in ('front_end', 'back_end'):
             _target = getattr(self, name, None)
@@ -80,6 +66,11 @@ class Cray(Platform):
                 safe_name = _target.replace('-', '_')
                 setattr(self, name, safe_name)
                 self.add_target(name, self.targets[safe_name])
+            if _target is None and name == 'front_end':
+                setattr(self, name, 'x86_64')
+                x86_64 = Target('x86_64')
+                self.add_target(name, x86_64)
+                self.add_target('x86_64', x86_64)
 
         if self.back_end is not None:
             self.default = self.back_end
@@ -87,7 +78,7 @@ class Cray(Platform):
         else:
             raise NoPlatformError()
 
-        front_distro = LinuxDistro()
+        front_distro = CrayFrontend()
         back_distro = Cnl()
 
         self.default_os = str(back_distro)
@@ -102,11 +93,26 @@ class Cray(Platform):
         """ Change the linker to default dynamic to be more
             similar to linux/standard linker behavior
         """
-        env.set('CRAYPE_LINK_TYPE', 'dynamic')
-        cray_wrapper_names = join_path(build_env_path, 'cray')
+        # Unload these modules to prevent any silent linking or unnecessary
+        # I/O profiling in the case of darshan.
+        modules_to_unload = ["cray-mpich", "darshan", "cray-libsci", "altd"]
+        for mod in modules_to_unload:
+            module('unload', mod)
+
+        link_type = spack.config.get("packages:all:craype_link_type",
+                                     "dynamic")
+
+        env.set('CRAYPE_LINK_TYPE', link_type)
+
+        cray_wrapper_names = os.path.join(build_env_path, 'cray')
+
         if os.path.isdir(cray_wrapper_names):
             env.prepend_path('PATH', cray_wrapper_names)
             env.prepend_path('SPACK_ENV_PATH', cray_wrapper_names)
+
+        # Makes spack installed pkg-config work on Crays
+        env.append_path("PKG_CONFIG_PATH", "/usr/lib64/pkgconfig")
+        env.append_path("PKG_CONFIG_PATH", "/usr/local/lib64/pkgconfig")
 
     @classmethod
     def detect(cls):
@@ -119,32 +125,19 @@ class Cray(Platform):
         A bash subshell is launched with a wiped environment and the list of
         loaded modules is parsed for the first acceptable CrayPE target.
         '''
-        # Based on the incantation:
-        # echo "$(env - USER=$USER /bin/bash -l -c 'module list -lt')"
+        # env -i /bin/bash -lc echo $CRAY_CPU_TARGET 2> /dev/null
         if getattr(self, 'default', None) is None:
             env = which('env')
-            env.add_default_arg('-')
-            # CAUTION - $USER is generally needed in the sub-environment.
-            # There may be other variables needed for general success.
-            output = env('USER=%s' % os.environ['USER'],
-                         'HOME=%s' % os.environ['HOME'],
-                         '/bin/bash', '--noprofile', '--norc', '-c',
-                         '. /etc/profile; module list -lt',
-                         output=str, error=str)
-            self._defmods = _get_modules_in_modulecmd_output(output)
-            targets = []
-            _fill_craype_targets_from_modules(targets, self._defmods)
-            self.default = targets[0] if targets else None
-            tty.debug("Found default modules:",
-                      *["     %s" % mod for mod in self._defmods])
+            output = env("-i", "/bin/bash", "-lc", "echo $CRAY_CPU_TARGET",
+                         output=str, error=os.devnull)
+            self.default = output.strip()
+            tty.debug("Found default module:%s" % self.default)
         return self.default
 
     def _avail_targets(self):
         '''Return a list of available CrayPE CPU targets.'''
         if getattr(self, '_craype_targets', None) is None:
-            module = which('modulecmd', required=True)
-            module.add_default_arg('python')
-            output = module('avail', '-t', 'craype-', output=str, error=str)
+            output = module('avail', '-t', 'craype-')
             craype_modules = _get_modules_in_modulecmd_output(output)
             self._craype_targets = targets = []
             _fill_craype_targets_from_modules(targets, craype_modules)

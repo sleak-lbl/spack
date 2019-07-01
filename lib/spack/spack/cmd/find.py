@@ -1,35 +1,22 @@
-##############################################################################
-# Copyright (c) 2013-2016, Lawrence Livermore National Security, LLC.
-# Produced at the Lawrence Livermore National Laboratory.
+# Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+# Spack Project Developers. See the top-level COPYRIGHT file for details.
 #
-# This file is part of Spack.
-# Created by Todd Gamblin, tgamblin@llnl.gov, All rights reserved.
-# LLNL-CODE-647188
-#
-# For details, see https://github.com/llnl/spack
-# Please also see the LICENSE file for our notice and the LGPL.
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License (as
-# published by the Free Software Foundation) version 2.1, February 1999.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the IMPLIED WARRANTY OF
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the terms and
-# conditions of the GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public
-# License along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
-##############################################################################
-import sys
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
+from __future__ import print_function
 
 import llnl.util.tty as tty
+import llnl.util.tty.color as color
+import llnl.util.lang
+
+import spack.environment as ev
+import spack.repo
 import spack.cmd.common.arguments as arguments
-
 from spack.cmd import display_specs
+from spack.util.string import plural
 
-description = "Find installed spack packages"
+description = "list and search installed packages"
+section = "basic"
+level = "short"
 
 
 def setup_parser(subparser):
@@ -39,56 +26,72 @@ def setup_parser(subparser):
                               dest='mode',
                               const='short',
                               default='short',
-                              help='Show only specs (default)')
+                              help='show only specs (default)')
     format_group.add_argument('-p', '--paths',
                               action='store_const',
                               dest='mode',
                               const='paths',
-                              help='Show paths to package install directories')
+                              help='show paths to package install directories')
     format_group.add_argument(
         '-d', '--deps',
         action='store_const',
         dest='mode',
         const='deps',
-        help='Show full dependency DAG of installed packages')
+        help='show full dependency DAG of installed packages')
 
-    arguments.add_common_arguments(subparser, ['long', 'very_long'])
+    arguments.add_common_arguments(
+        subparser, ['long', 'very_long', 'tags'])
 
+    subparser.add_argument('-c', '--show-concretized',
+                           action='store_true',
+                           help='show concretized specs in an environment')
     subparser.add_argument('-f', '--show-flags',
                            action='store_true',
                            dest='show_flags',
-                           help='Show spec compiler flags.')
+                           help='show spec compiler flags')
+    subparser.add_argument('--show-full-compiler',
+                           action='store_true',
+                           dest='show_full_compiler',
+                           help='show full compiler specs')
     implicit_explicit = subparser.add_mutually_exclusive_group()
     implicit_explicit.add_argument(
-        '-e', '--explicit',
+        '-x', '--explicit',
         action='store_true',
-        help='Show only specs that were installed explicitly')
+        help='show only specs that were installed explicitly')
     implicit_explicit.add_argument(
-        '-E', '--implicit',
+        '-X', '--implicit',
         action='store_true',
-        help='Show only specs that were installed as dependencies')
+        help='show only specs that were installed as dependencies')
     subparser.add_argument(
         '-u', '--unknown',
         action='store_true',
         dest='unknown',
-        help='Show only specs Spack does not have a package for.')
+        help='show only specs Spack does not have a package for')
     subparser.add_argument(
         '-m', '--missing',
         action='store_true',
         dest='missing',
-        help='Show missing dependencies as well as installed specs.')
+        help='show missing dependencies as well as installed specs')
     subparser.add_argument(
         '-v', '--variants',
         action='store_true',
         dest='variants',
-        help='Show variants in output (can be long)')
+        help='show variants in output (can be long)')
     subparser.add_argument('-M', '--only-missing',
                            action='store_true',
                            dest='only_missing',
-                           help='Show only missing dependencies.')
+                           help='show only missing dependencies')
     subparser.add_argument('-N', '--namespace',
                            action='store_true',
-                           help='Show fully qualified package names.')
+                           help='show fully qualified package names')
+
+    subparser.add_argument(
+        '--start-date',
+        help='earliest date of installation [YYYY-MM-DD]'
+    )
+    subparser.add_argument(
+        '--end-date', help='latest date of installation [YYYY-MM-DD]'
+    )
 
     arguments.add_common_arguments(subparser, ['constraint'])
 
@@ -108,28 +111,81 @@ def query_arguments(args):
     if args.implicit:
         explicit = False
     q_args = {'installed': installed, 'known': known, "explicit": explicit}
+
+    # Time window of installation
+    for attribute in ('start_date', 'end_date'):
+        date = getattr(args, attribute)
+        if date:
+            q_args[attribute] = llnl.util.lang.pretty_string_to_date(date)
+
     return q_args
+
+
+def setup_env(env):
+    """Create a function for decorating specs when in an environment."""
+
+    def strip_build(seq):
+        return set(s.copy(deps=('link', 'run')) for s in seq)
+
+    added = set(strip_build(env.added_specs()))
+    roots = set(strip_build(env.roots()))
+    removed = set(strip_build(env.removed_specs()))
+
+    def decorator(spec, fmt):
+        # add +/-/* to show added/removed/root specs
+        if any(spec.dag_hash() == r.dag_hash() for r in roots):
+            return color.colorize('@*{%s}' % fmt)
+        elif spec in removed:
+            return color.colorize('@K{%s}' % fmt)
+        else:
+            return '%s' % fmt
+
+    return decorator, added, roots, removed
 
 
 def find(parser, args):
     q_args = query_arguments(args)
-    query_specs = args.specs(**q_args)
+    results = args.specs(**q_args)
+
+    decorator = lambda s, f: f
+    added = set()
+    removed = set()
+
+    env = ev.get_env(args, 'find')
+    if env:
+        decorator, added, roots, removed = setup_env(env)
 
     # Exit early if no package matches the constraint
-    if not query_specs and args.constraint:
-        msg = "No package matches the query: {0}".format(
-            ' '.join(args.constraint))
+    if not results and args.constraint:
+        msg = "No package matches the query: {0}"
+        msg = msg.format(' '.join(args.constraint))
         tty.msg(msg)
         return
 
-    # Display the result
-    if sys.stdout.isatty():
-        tty.msg("%d installed packages." % len(query_specs))
+    # If tags have been specified on the command line, filter by tags
+    if args.tags:
+        packages_with_tags = spack.repo.path.packages_with_tags(*args.tags)
+        results = [x for x in results if x.name in packages_with_tags]
 
-    display_specs(query_specs,
-                  mode=args.mode,
-                  long=args.long,
-                  very_long=args.very_long,
-                  show_flags=args.show_flags,
-                  namespace=args.namespace,
-                  variants=args.variants)
+    # Display the result
+    if env:
+        tty.msg('In environment %s' % env.name)
+
+        if not env.user_specs:
+            tty.msg('No root specs')
+        else:
+            tty.msg('Root specs')
+            display_specs(
+                env.user_specs, args,
+                decorator=lambda s, f: color.colorize('@*{%s}' % f))
+        print()
+
+        if args.show_concretized:
+            tty.msg('Concretized roots')
+            display_specs(
+                env.specs_by_hash.values(), args, decorator=decorator)
+            print()
+
+    tty.msg("%s" % plural(len(results), 'installed package'))
+
+    display_specs(results, args, decorator=decorator, all_headers=True)

@@ -1,27 +1,8 @@
-##############################################################################
-# Copyright (c) 2013-2016, Lawrence Livermore National Security, LLC.
-# Produced at the Lawrence Livermore National Laboratory.
+# Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+# Spack Project Developers. See the top-level COPYRIGHT file for details.
 #
-# This file is part of Spack.
-# Created by Todd Gamblin, tgamblin@llnl.gov, All rights reserved.
-# LLNL-CODE-647188
-#
-# For details, see https://github.com/llnl/spack
-# Please also see the LICENSE file for our notice and the LGPL.
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License (as
-# published by the Free Software Foundation) version 2.1, February 1999.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the IMPLIED WARRANTY OF
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the terms and
-# conditions of the GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public
-# License along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
-##############################################################################
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
 from spack import *
 
 
@@ -32,16 +13,38 @@ class Bzip2(Package):
     compressors), whilst being around twice as fast at compression
     and six times faster at decompression."""
 
-    homepage = "http://www.bzip.org"
-    url      = "http://www.bzip.org/1.0.6/bzip2-1.0.6.tar.gz"
+    # FIXME: The bzip.org domain has expired:
+    # https://lwn.net/Articles/762264/
+    # This package will need to be updated when a new home is found.
+    homepage = "https://sourceware.org/bzip2/"
+    url      = "https://fossies.org/linux/misc/bzip2-1.0.6.tar.gz"
 
     version('1.0.6', '00b516f4704d4a7cb50a1d97e6e8e15b')
+
+    variant('shared', default=True, description='Enables the build of shared libraries.')
+
+    depends_on('diffutils', type='build')
+
+    # override default implementation
+    @property
+    def libs(self):
+        shared = '+shared' in self.spec
+        return find_libraries(
+            'libbz2', root=self.prefix, shared=shared, recursive=True
+        )
 
     def patch(self):
         # bzip2 comes with two separate Makefiles for static and dynamic builds
         # Tell both to use Spack's compiler wrapper instead of GCC
-        filter_file(r'^CC=gcc', 'CC=cc', 'Makefile')
-        filter_file(r'^CC=gcc', 'CC=cc', 'Makefile-libbz2_so')
+        filter_file(r'^CC=gcc', 'CC={0}'.format(spack_cc), 'Makefile')
+        filter_file(
+            r'^CC=gcc', 'CC={0}'.format(spack_cc), 'Makefile-libbz2_so'
+        )
+
+        # The Makefiles use GCC flags that are incompatible with PGI
+        if self.compiler.name == 'pgi':
+            filter_file('-Wall -Winline', '-Minform=inform', 'Makefile')
+            filter_file('-Wall -Winline', '-Minform=inform', 'Makefile-libbz2_so')  # noqa
 
         # Patch the link line to use RPATHs on macOS
         if 'darwin' in self.spec.architecture:
@@ -71,27 +74,30 @@ class Bzip2(Package):
 
     def install(self, spec, prefix):
         # Build the dynamic library first
-        make('-f', 'Makefile-libbz2_so')
+        if '+shared' in spec:
+            make('-f', 'Makefile-libbz2_so')
+
         # Build the static library and everything else
         make()
         make('install', 'PREFIX={0}'.format(prefix))
 
-        install('bzip2-shared', join_path(prefix.bin, 'bzip2'))
+        if '+shared' in spec:
+            install('bzip2-shared', join_path(prefix.bin, 'bzip2'))
 
-        v1, v2, v3 = (self.spec.version.up_to(i) for i in (1, 2, 3))
-        if 'darwin' in self.spec.architecture:
-            lib = 'libbz2.dylib'
-            lib1, lib2, lib3 = ('libbz2.{0}.dylib'.format(v)
-                                for v in (v1, v2, v3))
-        else:
-            lib = 'libbz2.so'
-            lib1, lib2, lib3 = ('libbz2.so.{0}'.format(v)
-                                for v in (v1, v2, v3))
+            v1, v2, v3 = (self.spec.version.up_to(i) for i in (1, 2, 3))
+            if 'darwin' in self.spec.architecture:
+                lib = 'libbz2.dylib'
+                lib1, lib2, lib3 = ('libbz2.{0}.dylib'.format(v)
+                                    for v in (v1, v2, v3))
+            else:
+                lib = 'libbz2.so'
+                lib1, lib2, lib3 = ('libbz2.so.{0}'.format(v)
+                                    for v in (v1, v2, v3))
 
-        install(lib3, join_path(prefix.lib, lib3))
-        with working_dir(prefix.lib):
-            for l in (lib, lib1, lib2):
-                symlink(lib3, l)
+            install(lib3, join_path(prefix.lib, lib3))
+            with working_dir(prefix.lib):
+                for l in (lib, lib1, lib2):
+                    symlink(lib3, l)
 
         with working_dir(prefix.bin):
             force_remove('bunzip2', 'bzcat')

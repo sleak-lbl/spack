@@ -1,57 +1,63 @@
-##############################################################################
-# Copyright (c) 2013-2016, Lawrence Livermore National Security, LLC.
-# Produced at the Lawrence Livermore National Laboratory.
+# Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+# Spack Project Developers. See the top-level COPYRIGHT file for details.
 #
-# This file is part of Spack.
-# Created by Todd Gamblin, tgamblin@llnl.gov, All rights reserved.
-# LLNL-CODE-647188
-#
-# For details, see https://github.com/llnl/spack
-# Please also see the LICENSE file for our notice and the LGPL.
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License (as
-# published by the Free Software Foundation) version 2.1, February 1999.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the IMPLIED WARRANTY OF
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the terms and
-# conditions of the GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public
-# License along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
-##############################################################################
-import spack.architecture
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
+import sys
 import pytest
-from spack.spec import *
+
+from spack.spec import Spec, UnsatisfiableSpecError, SpecError
+from spack.spec import substitute_abstract_variants, parse_anonymous_spec
+from spack.spec import SpecFormatSigilError, SpecFormatStringError
+from spack.variant import InvalidVariantValueError
+from spack.variant import MultipleValuesInExclusiveVariantError
+
+import spack.architecture
+import spack.directives
+import spack.error
 
 
-def check_satisfies(spec, anon_spec, concrete=False):
-    left = Spec(spec, concrete=concrete)
+def target_factory(spec_string, target_concrete):
+    spec = Spec(spec_string) if spec_string else Spec()
+
+    if target_concrete:
+        spec._mark_concrete()
+        substitute_abstract_variants(spec)
+
+    return spec
+
+
+def argument_factory(argument_spec, left):
     try:
-        right = Spec(anon_spec)  # if it's not anonymous, allow it.
+        # If it's not anonymous, allow it
+        right = target_factory(argument_spec, False)
     except Exception:
-        right = parse_anonymous_spec(anon_spec, left.name)
+        right = parse_anonymous_spec(argument_spec, left.name)
+    return right
+
+
+def check_satisfies(target_spec, argument_spec, target_concrete=False):
+
+    left = target_factory(target_spec, target_concrete)
+    right = argument_factory(argument_spec, left)
 
     # Satisfies is one-directional.
     assert left.satisfies(right)
-    assert left.satisfies(anon_spec)
+    if argument_spec:
+        assert left.satisfies(argument_spec)
 
-    # if left satisfies right, then we should be able to consrain
+    # If left satisfies right, then we should be able to constrain
     # right by left.  Reverse is not always true.
     right.copy().constrain(left)
 
 
-def check_unsatisfiable(spec, anon_spec, concrete=False):
-    left = Spec(spec, concrete=concrete)
-    try:
-        right = Spec(anon_spec)  # if it's not anonymous, allow it.
-    except Exception:
-        right = parse_anonymous_spec(anon_spec, left.name)
+def check_unsatisfiable(target_spec, argument_spec, target_concrete=False):
+
+    left = target_factory(target_spec, target_concrete)
+    right = argument_factory(argument_spec, left)
 
     assert not left.satisfies(right)
-    assert not left.satisfies(anon_spec)
+    assert not left.satisfies(argument_spec)
 
     with pytest.raises(UnsatisfiableSpecError):
         right.copy().constrain(left)
@@ -82,7 +88,7 @@ def check_invalid_constraint(spec, constraint):
         spec.constrain(constraint)
 
 
-@pytest.mark.usefixtures('config', 'builtin_mock')
+@pytest.mark.usefixtures('config', 'mock_packages')
 class TestSpecSematics(object):
     """This tests satisfies(), constrain() and other semantic operations
     on specs.
@@ -90,6 +96,34 @@ class TestSpecSematics(object):
     def test_satisfies(self):
         check_satisfies('libelf@0.8.13', '@0:1')
         check_satisfies('libdwarf^libelf@0.8.13', '^libelf@0:1')
+
+    def test_empty_satisfies(self):
+        # Basic satisfaction
+        check_satisfies('libelf', '')
+        check_satisfies('libdwarf', '')
+        check_satisfies('%intel', '')
+        check_satisfies('^mpi', '')
+        check_satisfies('+debug', '')
+        check_satisfies('@3:', '')
+
+        # Concrete (strict) satisfaction
+        check_satisfies('libelf', '', True)
+        check_satisfies('libdwarf', '', True)
+        check_satisfies('%intel', '', True)
+        check_satisfies('^mpi', '', True)
+        # TODO: Variants can't be called concrete while anonymous
+        # check_satisfies('+debug', '', True)
+        check_satisfies('@3:', '', True)
+
+        # Reverse (non-strict) satisfaction
+        check_satisfies('', 'libelf')
+        check_satisfies('', 'libdwarf')
+        check_satisfies('', '%intel')
+        check_satisfies('', '^mpi')
+        # TODO: Variant matching is auto-strict
+        # we should rethink this
+        # check_satisfies('', '+debug')
+        check_satisfies('', '@3:')
 
     def test_satisfies_namespace(self):
         check_satisfies('builtin.mpich', 'mpich')
@@ -243,6 +277,155 @@ class TestSpecSematics(object):
         check_satisfies('mpich~foo', 'mpich foo=FALSE')
         check_satisfies('mpich foo=False', 'mpich~foo')
 
+    def test_satisfies_multi_value_variant(self):
+        # Check quoting
+        check_satisfies('multivalue_variant foo="bar,baz"',
+                        'multivalue_variant foo="bar,baz"')
+        check_satisfies('multivalue_variant foo=bar,baz',
+                        'multivalue_variant foo=bar,baz')
+        check_satisfies('multivalue_variant foo="bar,baz"',
+                        'multivalue_variant foo=bar,baz')
+
+        # A more constrained spec satisfies a less constrained one
+        check_satisfies('multivalue_variant foo="bar,baz"',
+                        'multivalue_variant foo="bar"')
+
+        check_satisfies('multivalue_variant foo="bar,baz"',
+                        'multivalue_variant foo="baz"')
+
+        check_satisfies('multivalue_variant foo="bar,baz,barbaz"',
+                        'multivalue_variant foo="bar,baz"')
+
+        check_satisfies('multivalue_variant foo="bar,baz"',
+                        'foo="bar,baz"')
+
+        check_satisfies('multivalue_variant foo="bar,baz"',
+                        'foo="bar"')
+
+    def test_satisfies_single_valued_variant(self):
+        """Tests that the case reported in
+        https://github.com/spack/spack/pull/2386#issuecomment-282147639
+        is handled correctly.
+        """
+        a = Spec('a foobar=bar')
+        a.concretize()
+
+        assert a.satisfies('foobar=bar')
+
+        # Assert that an autospec generated from a literal
+        # gives the right result for a single valued variant
+        assert 'foobar=bar' in a
+        assert 'foobar=baz' not in a
+        assert 'foobar=fee' not in a
+
+        # ... and for a multi valued variant
+        assert 'foo=bar' in a
+
+        # Check that conditional dependencies are treated correctly
+        assert '^b' in a
+
+    def test_unsatisfied_single_valued_variant(self):
+        a = Spec('a foobar=baz')
+        a.concretize()
+        assert '^b' not in a
+
+        mv = Spec('multivalue_variant')
+        mv.concretize()
+        assert 'a@1.0' not in mv
+
+    def test_indirect_unsatisfied_single_valued_variant(self):
+        spec = Spec('singlevalue-variant-dependent')
+        spec.concretize()
+        assert 'a@1.0' not in spec
+
+    def test_unsatisfiable_multi_value_variant(self):
+
+        # Semantics for a multi-valued variant is different
+        # Depending on whether the spec is concrete or not
+
+        a = target_factory(
+            'multivalue_variant foo="bar"', target_concrete=True
+        )
+        spec_str = 'multivalue_variant foo="bar,baz"'
+        b = Spec(spec_str)
+        assert not a.satisfies(b)
+        assert not a.satisfies(spec_str)
+        # A concrete spec cannot be constrained further
+        with pytest.raises(UnsatisfiableSpecError):
+            a.constrain(b)
+
+        a = Spec('multivalue_variant foo="bar"')
+        spec_str = 'multivalue_variant foo="bar,baz"'
+        b = Spec(spec_str)
+        # The specs are abstract and they **could** be constrained
+        assert a.satisfies(b)
+        assert a.satisfies(spec_str)
+        # An abstract spec can instead be constrained
+        assert a.constrain(b)
+
+        a = target_factory(
+            'multivalue_variant foo="bar,baz"', target_concrete=True
+        )
+        spec_str = 'multivalue_variant foo="bar,baz,quux"'
+        b = Spec(spec_str)
+        assert not a.satisfies(b)
+        assert not a.satisfies(spec_str)
+        # A concrete spec cannot be constrained further
+        with pytest.raises(UnsatisfiableSpecError):
+            a.constrain(b)
+
+        a = Spec('multivalue_variant foo="bar,baz"')
+        spec_str = 'multivalue_variant foo="bar,baz,quux"'
+        b = Spec(spec_str)
+        # The specs are abstract and they **could** be constrained
+        assert a.satisfies(b)
+        assert a.satisfies(spec_str)
+        # An abstract spec can instead be constrained
+        assert a.constrain(b)
+        # ...but will fail during concretization if there are
+        # values in the variant that are not allowed
+        with pytest.raises(InvalidVariantValueError):
+            a.concretize()
+
+        # This time we'll try to set a single-valued variant
+        a = Spec('multivalue_variant fee="bar"')
+        spec_str = 'multivalue_variant fee="baz"'
+        b = Spec(spec_str)
+        # The specs are abstract and they **could** be constrained,
+        # as before concretization I don't know which type of variant
+        # I have (if it is not a BV)
+        assert a.satisfies(b)
+        assert a.satisfies(spec_str)
+        # A variant cannot be parsed as single-valued until we try to
+        # concretize. This means that we can constrain the variant above
+        assert a.constrain(b)
+        # ...but will fail during concretization if there are
+        # multiple values set
+        with pytest.raises(MultipleValuesInExclusiveVariantError):
+            a.concretize()
+
+    def test_unsatisfiable_variant_types(self):
+        # These should fail due to incompatible types
+
+        # FIXME: these needs to be checked as the new relaxed
+        # FIXME: semantic makes them fail (constrain does not raise)
+        # check_unsatisfiable('multivalue_variant +foo',
+        #                     'multivalue_variant foo="bar"')
+        # check_unsatisfiable('multivalue_variant ~foo',
+        #                     'multivalue_variant foo="bar"')
+
+        check_unsatisfiable(
+            target_spec='multivalue_variant foo="bar"',
+            argument_spec='multivalue_variant +foo',
+            target_concrete=True
+        )
+
+        check_unsatisfiable(
+            target_spec='multivalue_variant foo="bar"',
+            argument_spec='multivalue_variant ~foo',
+            target_concrete=True
+        )
+
     def test_satisfies_unconstrained_variant(self):
         # only asked for mpich, no constraints.  Either will do.
         check_satisfies('mpich+foo', 'mpich')
@@ -266,7 +449,7 @@ class TestSpecSematics(object):
         # No matchi in specs
         check_unsatisfiable('mpich~foo', 'mpich+foo')
         check_unsatisfiable('mpich+foo', 'mpich~foo')
-        check_unsatisfiable('mpich foo=1', 'mpich foo=2')
+        check_unsatisfiable('mpich foo=True', 'mpich foo=False')
 
     def test_satisfies_matching_compiler_flag(self):
         check_satisfies('mpich cppflags="-O3"', 'mpich cppflags="-O3"')
@@ -286,6 +469,14 @@ class TestSpecSematics(object):
 
         # 'mpich' is concrete:
         check_unsatisfiable('mpich', 'mpich cppflags="-O3"', True)
+
+    def test_copy_satisfies_transitive(self):
+        spec = Spec('dttop')
+        spec.concretize()
+        copy = spec.copy()
+        for s in spec.traverse():
+            assert s.satisfies(copy[s.name])
+            assert copy[s.name].satisfies(s)
 
     def test_unsatisfiable_compiler_flag_mismatch(self):
         # No matchi in specs
@@ -408,6 +599,19 @@ class TestSpecSematics(object):
             'libelf+debug~foo', 'libelf+debug', 'libelf+debug~foo'
         )
 
+    def test_constrain_multi_value_variant(self):
+        check_constrain(
+            'multivalue_variant foo="bar,baz"',
+            'multivalue_variant foo="bar"',
+            'multivalue_variant foo="baz"'
+        )
+
+        check_constrain(
+            'multivalue_variant foo="bar,baz,barbaz"',
+            'multivalue_variant foo="bar,barbaz"',
+            'multivalue_variant foo="baz"'
+        )
+
     def test_constrain_compiler_flags(self):
         check_constrain(
             'libelf cflags="-O3" cppflags="-Wall"',
@@ -447,7 +651,7 @@ class TestSpecSematics(object):
 
         check_invalid_constraint('libelf+debug', 'libelf~debug')
         check_invalid_constraint('libelf+debug~foo', 'libelf+debug+foo')
-        check_invalid_constraint('libelf debug=2', 'libelf debug=1')
+        check_invalid_constraint('libelf debug=True', 'libelf debug=False')
 
         check_invalid_constraint(
             'libelf cppflags="-O3"', 'libelf cppflags="-O2"')
@@ -520,3 +724,226 @@ class TestSpecSematics(object):
         check_constrain_not_changed(
             'libelf^foo target=' + default_target,
             'libelf^foo target=' + default_target)
+
+    def test_exceptional_paths_for_constructor(self):
+
+        with pytest.raises(TypeError):
+            Spec((1, 2))
+
+        with pytest.raises(ValueError):
+            Spec('')
+
+        with pytest.raises(ValueError):
+            Spec('libelf foo')
+
+    def test_spec_formatting(self):
+        spec = Spec("multivalue_variant cflags=-O2")
+        spec.concretize()
+
+        # Since the default is the full spec see if the string rep of
+        # spec is the same as the output of spec.format()
+        # ignoring whitespace (though should we?) and ignoring dependencies
+        spec_string = str(spec)
+        idx = spec_string.index(' ^')
+        assert spec_string[:idx] == spec.format().strip()
+
+        # Testing named strings ie {string} and whether we get
+        # the correct component
+        # Mixed case intentional to test both
+        package_segments = [("{NAME}", "name"),
+                            ("{VERSION}", "versions"),
+                            ("{compiler}", "compiler"),
+                            ("{compiler_flags}", "compiler_flags"),
+                            ("{variants}", "variants"),
+                            ("{architecture}", "architecture")]
+
+        sigil_package_segments = [("{@VERSIONS}", '@' + str(spec.version)),
+                                  ("{%compiler}", '%' + str(spec.compiler)),
+                                  ("{arch=architecture}",
+                                   ' arch=' + str(spec.architecture))]
+
+        compiler_segments = [("{compiler.name}", "name"),
+                             ("{compiler.version}", "versions")]
+
+        sigil_compiler_segments = [("{%compiler.name}",
+                                    '%' + spec.compiler.name),
+                                   ("{@compiler.version}",
+                                    '@' + str(spec.compiler.version))]
+
+        architecture_segments = [("{architecture.platform}", "platform"),
+                                 ("{architecture.os}", "os"),
+                                 ("{architecture.target}", "target")]
+
+        other_segments = [('{spack_root}', spack.paths.spack_root),
+                          ('{spack_install}', spack.store.layout.root),
+                          ('{hash:7}', spec.dag_hash(7)),
+                          ('{/hash}', '/' + spec.dag_hash())]
+
+        for named_str, prop in package_segments:
+            expected = getattr(spec, prop, "")
+            actual = spec.format(named_str)
+            assert str(expected) == actual
+
+        for named_str, expected in sigil_package_segments:
+            actual = spec.format(named_str)
+            assert expected == actual
+
+        compiler = spec.compiler
+        for named_str, prop in compiler_segments:
+            expected = getattr(compiler, prop, "")
+            actual = spec.format(named_str)
+            assert str(expected) == actual
+
+        for named_str, expected in sigil_compiler_segments:
+            actual = spec.format(named_str)
+            assert expected == actual
+
+        arch = spec.architecture
+        for named_str, prop in architecture_segments:
+            expected = getattr(arch, prop, "")
+            actual = spec.format(named_str)
+            assert str(expected) == actual
+
+        for named_str, expected in other_segments:
+            actual = spec.format(named_str)
+            assert expected == actual
+
+    def test_spec_formatting_escapes(self):
+        spec = Spec('multivalue_variant cflags=-O2')
+        spec.concretize()
+
+        sigil_mismatches = [
+            '{@name}',
+            '{@version.concrete}',
+            '{%compiler.version}',
+            '{/hashd}',
+            '{arch=architecture.os}'
+        ]
+
+        for fmt_str in sigil_mismatches:
+            with pytest.raises(SpecFormatSigilError):
+                spec.format(fmt_str)
+
+        bad_formats = [
+            '{}',
+            'name}',
+            '\{name}',  # NOQA: ignore=W605
+            '{name',
+            '{name\}',  # NOQA: ignore=W605
+            '{_concrete}',
+            '{dag_hash}',
+            '{foo}',
+            '{+variants.debug}'
+        ]
+
+        for fmt_str in bad_formats:
+            with pytest.raises(SpecFormatStringError):
+                spec.format(fmt_str)
+
+    def test_spec_deprecated_formatting(self):
+        spec = Spec("libelf cflags=-O2")
+        spec.concretize()
+
+        # Since the default is the full spec see if the string rep of
+        # spec is the same as the output of spec.format()
+        # ignoring whitespace (though should we?)
+        assert str(spec) == spec.format('$_$@$%@+$+$=').strip()
+
+        # Testing named strings ie {string} and whether we get
+        # the correct component
+        # Mixed case intentional for testing both
+        package_segments = [("${PACKAGE}", "name"),
+                            ("${VERSION}", "versions"),
+                            ("${compiler}", "compiler"),
+                            ("${compilerflags}", "compiler_flags"),
+                            ("${options}", "variants"),
+                            ("${architecture}", "architecture")]
+
+        compiler_segments = [("${compilername}", "name"),
+                             ("${compilerver}", "versions")]
+
+        architecture_segments = [("${PLATFORM}", "platform"),
+                                 ("${OS}", "os"),
+                                 ("${TARGET}", "target")]
+
+        for named_str, prop in package_segments:
+            expected = getattr(spec, prop, "")
+            actual = spec.format(named_str)
+            assert str(expected) == actual
+
+        compiler = spec.compiler
+        for named_str, prop in compiler_segments:
+            expected = getattr(compiler, prop, "")
+            actual = spec.format(named_str)
+            assert str(expected) == actual
+
+        arch = spec.architecture
+        for named_str, prop in architecture_segments:
+            expected = getattr(arch, prop, "")
+            actual = spec.format(named_str)
+            assert str(expected) == actual
+
+    @pytest.mark.regression('9908')
+    def test_spec_flags_maintain_order(self):
+        # Spack was assembling flags in a manner that could result in
+        # different orderings for repeated concretizations of the same
+        # spec and config
+        spec_str = 'libelf %gcc@4.7.2 os=redhat6'
+        for _ in range(25):
+            s = Spec(spec_str).concretized()
+            assert all(
+                s.compiler_flags[x] == ['-O0', '-g']
+                for x in ('cflags', 'cxxflags', 'fflags')
+            )
+
+    def test_any_combination_of(self):
+        # Test that using 'none' and another value raise during concretization
+        spec = Spec('multivalue_variant foo=none,bar')
+        with pytest.raises(spack.error.SpecError) as exc_info:
+            spec.concretize()
+
+        assert "is mutually exclusive with any of the" in str(exc_info.value)
+
+    @pytest.mark.skipif(
+        sys.version_info[0] == 2, reason='__wrapped__ requires python 3'
+    )
+    def test_errors_in_variant_directive(self):
+        variant = spack.directives.variant.__wrapped__
+
+        class Pkg(object):
+            name = 'PKG'
+
+        # We can't use names that are reserved by Spack
+        fn = variant('patches')
+        with pytest.raises(spack.directives.DirectiveError) as exc_info:
+            fn(Pkg())
+        assert "The name 'patches' is reserved" in str(exc_info.value)
+
+        # We can't have conflicting definitions for arguments
+        fn = variant(
+            'foo', values=spack.variant.any_combination_of('fee', 'foom'),
+            default='bar'
+        )
+        with pytest.raises(spack.directives.DirectiveError) as exc_info:
+            fn(Pkg())
+        assert " it is handled by an attribute of the 'values' " \
+               "argument" in str(exc_info.value)
+
+        # We can't leave None as a default value
+        fn = variant('foo', default=None)
+        with pytest.raises(spack.directives.DirectiveError) as exc_info:
+            fn(Pkg())
+        assert "either a default was not explicitly set, or 'None' was used"\
+               in str(exc_info.value)
+
+        # We can't use an empty string as a default value
+        fn = variant('foo', default='')
+        with pytest.raises(spack.directives.DirectiveError) as exc_info:
+            fn(Pkg())
+        assert "the default cannot be an empty string" in str(exc_info.value)
+
+    def test_abstract_spec_prefix_error(self):
+        spec = Spec('libelf')
+
+        with pytest.raises(SpecError):
+            spec.prefix

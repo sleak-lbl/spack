@@ -1,11 +1,20 @@
+.. Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+   Spack Project Developers. See the top-level COPYRIGHT file for details.
+
+   SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
 .. Spack documentation master file, created by
    sphinx-quickstart on Mon Dec  9 15:32:41 2013.
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
 ===================
-Spack Documentation
+Spack
 ===================
+
+.. epigraph::
+
+   `These are docs for the Spack package manager. For sphere packing, see` `pyspack <https://pyspack.readthedocs.io>`_.
 
 Spack is a package management tool designed to support multiple
 versions and configurations of software on a wide variety of platforms
@@ -25,12 +34,12 @@ maintain a single file for many different builds of the same package.
 See the :doc:`features` for examples and highlights.
 
 Get spack from the `github repository
-<https://github.com/llnl/spack>`_ and install your first
+<https://github.com/spack/spack>`_ and install your first
 package:
 
 .. code-block:: console
 
-   $ git clone https://github.com/llnl/spack.git
+   $ git clone https://github.com/spack/spack.git
    $ cd spack/bin
    $ ./spack install libelf
 
@@ -46,7 +55,8 @@ or refer to the full manual below.
    getting_started
    basic_usage
    workflows
-   tutorial_sc16
+   tutorial
+   known_issues
 
 .. toctree::
    :maxdepth: 2
@@ -58,8 +68,11 @@ or refer to the full manual below.
    mirrors
    module_file_support
    repositories
+   binary_caches
    command_index
    package_list
+   chain
+   extensions
 
 .. toctree::
    :maxdepth: 2
@@ -67,8 +80,16 @@ or refer to the full manual below.
 
    contribution_guide
    packaging_guide
+   build_systems
    developer_guide
-   API Docs <spack>
+   docker_for_developers
+
+.. toctree::
+   :maxdepth: 2
+   :caption: API Docs
+
+   Spack API Docs <spack>
+   LLNL API Docs <llnl>
 
 ==================
 Indices and tables

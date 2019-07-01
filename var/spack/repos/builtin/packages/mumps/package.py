@@ -1,27 +1,8 @@
-##############################################################################
-# Copyright (c) 2013-2016, Lawrence Livermore National Security, LLC.
-# Produced at the Lawrence Livermore National Laboratory.
+# Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+# Spack Project Developers. See the top-level COPYRIGHT file for details.
 #
-# This file is part of Spack.
-# Created by Todd Gamblin, tgamblin@llnl.gov, All rights reserved.
-# LLNL-CODE-647188
-#
-# For details, see https://github.com/llnl/spack
-# Please also see the LICENSE file for our notice and the LGPL.
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License (as
-# published by the Free Software Foundation) version 2.1, February 1999.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the IMPLIED WARRANTY OF
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the terms and
-# conditions of the GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public
-# License along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
-##############################################################################
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
 from spack import *
 import os
 import sys
@@ -34,6 +15,9 @@ class Mumps(Package):
     homepage = "http://mumps.enseeiht.fr"
     url      = "http://mumps.enseeiht.fr/MUMPS_5.0.1.tar.gz"
 
+    version('5.2.0', '41f2c7cb20d69599fb47e2ad6f628f3798c429f49e72e757e70722680f70853f')
+    version('5.1.2', 'eb345cda145da9aea01b851d17e54e7eef08e16bfa148100ac1f7f046cd42ae9')
+    version('5.1.1', 'f15c6b5dd8c71b1241004cd19818259d')
     version('5.0.2', '591bcb2c205dcb0283872608cdf04927')
     # Alternate location if main server is down.
     # version('5.0.1', 'b477573fdcc87babe861f62316833db0', url='http://pkgs.fedoraproject.org/repo/pkgs/MUMPS/MUMPS_5.0.1.tar.gz/md5/b477573fdcc87babe861f62316833db0/MUMPS_5.0.1.tar.gz')
@@ -60,13 +44,16 @@ class Mumps(Package):
     variant('shared', default=True, description='Build shared libraries')
 
     depends_on('scotch + esmumps', when='~ptscotch+scotch')
-    depends_on('scotch + esmumps + mpi', when='+ptscotch')
+    depends_on('scotch + esmumps ~ metis + mpi', when='+ptscotch')
     depends_on('metis@5:', when='+metis')
     depends_on('parmetis', when="+parmetis")
     depends_on('blas')
     depends_on('lapack')
     depends_on('scalapack', when='+mpi')
     depends_on('mpi', when='+mpi')
+
+    patch('examples.patch', when='@5.1.1%clang^spectrum-mpi')
+    patch('gfortran8.patch', when='@5.1.2')
 
     # this function is not a patch function because in case scalapack
     # is needed it uses self.spec['scalapack'].fc_link set by the
@@ -79,21 +66,26 @@ class Mumps(Package):
             raise RuntimeError(
                 'You cannot use the variants parmetis or ptscotch without mpi')
 
-        lapack_blas = (self.spec['lapack'].lapack_libs +
-                       self.spec['blas'].blas_libs)
-        makefile_conf = ["LIBBLAS = %s" % lapack_blas.joined()]
+        # The makefile variables LIBBLAS, LSCOTCH, LMETIS, and SCALAP are only
+        # used to link the examples, so if building '+shared' there is no need
+        # to explicitly link with the respective libraries because we make sure
+        # the mumps shared libraries are already linked with them. See also the
+        # comment below about 'inject_libs'. This behaviour may cause problems
+        # if building '+shared' and the used libraries were build static
+        # without the PIC option.
+        shared = '+shared' in self.spec
+
+        lapack_blas = (self.spec['lapack'].libs + self.spec['blas'].libs)
+        makefile_conf = ["LIBBLAS = %s" %
+                         lapack_blas.ld_flags if not shared else '']
 
         orderings = ['-Dpord']
 
         if '+ptscotch' in self.spec or '+scotch' in self.spec:
-            join_lib = ' -l%s' % ('pt' if '+ptscotch' in self.spec else '')
             makefile_conf.extend([
                 "ISCOTCH = -I%s" % self.spec['scotch'].prefix.include,
-                "LSCOTCH = -L%s %s%s" % (self.spec['scotch'].prefix.lib,
-                                         join_lib,
-                                         join_lib.join(['esmumps',
-                                                        'scotch',
-                                                        'scotcherr']))
+                "LSCOTCH = {0}".format(
+                    self.spec['scotch'].libs.ld_flags if not shared else '')
             ])
 
             orderings.append('-Dscotch')
@@ -103,48 +95,83 @@ class Mumps(Package):
         if '+parmetis' in self.spec and '+metis' in self.spec:
             makefile_conf.extend([
                 "IMETIS = -I%s" % self.spec['parmetis'].prefix.include,
-                "LMETIS = -L%s -l%s -L%s -l%s" % (
+                ("LMETIS = -L%s -l%s -L%s -l%s" % (
                     self.spec['parmetis'].prefix.lib, 'parmetis',
-                    self.spec['metis'].prefix.lib, 'metis')
+                    self.spec['metis'].prefix.lib, 'metis')) if not shared
+                else 'LMETIS ='
             ])
 
             orderings.append('-Dparmetis')
         elif '+metis' in self.spec:
             makefile_conf.extend([
                 "IMETIS = -I%s" % self.spec['metis'].prefix.include,
-                "LMETIS = -L%s -l%s" % (self.spec['metis'].prefix.lib, 'metis')
+                ("LMETIS = -L%s -l%s" % (
+                    self.spec['metis'].prefix.lib, 'metis')) if not shared
+                else 'LMETIS ='
             ])
 
             orderings.append('-Dmetis')
 
         makefile_conf.append("ORDERINGSF = %s" % (' '.join(orderings)))
 
+        # Determine which compiler suite we are using
+        using_gcc = self.compiler.name == "gcc"
+        using_pgi = self.compiler.name == "pgi"
+        using_intel = self.compiler.name == "intel"
+        using_xl = self.compiler.name in ['xl', 'xl_r']
+
+        # The llvm compiler suite does not contain a Fortran compiler by
+        # default.  Its possible that a Spack user may have configured
+        # ~/.spack/<platform>/compilers.yaml for using xlf.
+        using_xlf = using_xl or \
+            (spack_f77.endswith('xlf') or spack_f77.endswith('xlf_r'))
+
         # when building shared libs need -fPIC, otherwise
         # /usr/bin/ld: graph.o: relocation R_X86_64_32 against `.rodata.str1.1'
         # can not be used when making a shared object; recompile with -fPIC
-        fpic = '-fPIC' if '+shared' in self.spec else ''
+        fpic = self.compiler.pic_flag if '+shared' in self.spec else ''
         # TODO: test this part, it needs a full blas, scalapack and
         # partitionning environment with 64bit integers
+
+        opt_level = '3' if using_xl else ''
+
         if '+int64' in self.spec:
-            makefile_conf.extend(
+            if using_xlf:
+                makefile_conf.append('OPTF = -O%s' % opt_level)
+            else:
                 # the fortran compilation flags most probably are
                 # working only for intel and gnu compilers this is
                 # perhaps something the compiler should provide
-                ['OPTF    = %s -O  -DALLOW_NON_INIT %s' % (fpic, '-fdefault-integer-8' if self.compiler.name == "gcc" else '-i8'),  # noqa
-                 'OPTL    = %s -O ' % fpic,
-                 'OPTC    = %s -O -DINTSIZE64' % fpic])
+                makefile_conf.extend([
+                    'OPTF = %s -O  -DALLOW_NON_INIT %s' % (
+                        fpic,
+                        '-fdefault-integer-8' if using_gcc
+                                              else '-i8'),  # noqa
+                ])
+
+            makefile_conf.extend([
+                'OPTL = %s -O%s' % (fpic, opt_level),
+                'OPTC = %s -O%s -DINTSIZE64' % (fpic, opt_level)
+            ])
         else:
-            makefile_conf.extend(
-                ['OPTF    = %s -O  -DALLOW_NON_INIT' % fpic,
-                 'OPTL    = %s -O ' % fpic,
-                 'OPTC    = %s -O ' % fpic])
+            if using_xlf:
+                makefile_conf.append('OPTF = -O%s -qfixed' % opt_level)
+            else:
+                makefile_conf.append('OPTF = %s -O%s -DALLOW_NON_INIT' % (
+                    fpic, opt_level))
+
+            makefile_conf.extend([
+                'OPTL = %s -O%s' % (fpic, opt_level),
+                'OPTC = %s -O%s' % (fpic, opt_level)
+            ])
 
         if '+mpi' in self.spec:
-            scalapack = self.spec['scalapack'].scalapack_libs
+            scalapack = self.spec['scalapack'].libs if not shared \
+                else LibraryList([])
             makefile_conf.extend(
-                ["CC = %s" % join_path(self.spec['mpi'].prefix.bin, 'mpicc'),
-                 "FC = %s" % join_path(self.spec['mpi'].prefix.bin, 'mpif90'),
-                 "FL = %s" % join_path(self.spec['mpi'].prefix.bin, 'mpif90'),
+                ['CC = {0}'.format(self.spec['mpi'].mpicc),
+                 'FC = {0}'.format(self.spec['mpi'].mpifc),
+                 'FL = {0}'.format(self.spec['mpi'].mpifc),
                  "SCALAP = %s" % scalapack.ld_flags,
                  "MUMPS_TYPE = par"])
         else:
@@ -156,29 +183,64 @@ class Mumps(Package):
 
         # TODO: change the value to the correct one according to the
         # compiler possible values are -DAdd_, -DAdd__ and/or -DUPPER
-        if self.compiler.name == 'intel':
-            # Intel Fortran compiler provides the main() function so
+        if using_intel or using_pgi:
+            # Intel & PGI Fortran compiler provides the main() function so
             # C examples linked with the Fortran compiler require a
             # hack defined by _DMAIN_COMP (see examples/c_example.c)
             makefile_conf.append("CDEFS   = -DAdd_ -DMAIN_COMP")
         else:
-            makefile_conf.append("CDEFS   = -DAdd_")
+            if not using_xlf:
+                makefile_conf.append("CDEFS = -DAdd_")
 
         if '+shared' in self.spec:
+            # All Mumps libraries will be linked with 'inject_libs'.
+            inject_libs = []
+            if '+mpi' in self.spec:
+                inject_libs += [self.spec['scalapack'].libs.ld_flags]
+            if '+ptscotch' in self.spec or '+scotch' in self.spec:
+                inject_libs += [self.spec['scotch'].libs.ld_flags]
+            if '+parmetis' in self.spec and '+metis' in self.spec:
+                inject_libs += [
+                    "-L%s -l%s -L%s -l%s" % (
+                        self.spec['parmetis'].prefix.lib, 'parmetis',
+                        self.spec['metis'].prefix.lib, 'metis')]
+            elif '+metis' in self.spec:
+                inject_libs += [
+                    "-L%s -l%s" % (self.spec['metis'].prefix.lib, 'metis')]
+            inject_libs += [lapack_blas.ld_flags]
+            inject_libs = ' '.join(inject_libs)
+
             if sys.platform == 'darwin':
                 # Building dylibs with mpif90 causes segfaults on 10.8 and
                 # 10.10. Use gfortran. (Homebrew)
                 makefile_conf.extend([
                     'LIBEXT=.dylib',
-                    'AR=%s -dynamiclib -Wl,-install_name -Wl,%s/$(notdir $@) -undefined dynamic_lookup -o ' % (os.environ['FC'], prefix.lib),  # noqa
+                    'AR=%s -dynamiclib -Wl,-install_name -Wl,%s/$(notdir $@)'
+                    ' -undefined dynamic_lookup %s -o ' %
+                    (os.environ['FC'], prefix.lib, inject_libs),
                     'RANLIB=echo'
                 ])
             else:
+                if using_xlf:
+                    build_shared_flag = "qmkshrobj"
+                else:
+                    build_shared_flag = "shared"
+
                 makefile_conf.extend([
                     'LIBEXT=.so',
-                    'AR=$(FL) -shared -Wl,-soname -Wl,%s/$(notdir $@) -o' % prefix.lib,  # noqa
-                    'RANLIB=echo'
+                    'AR=link_cmd() { $(FL) -%s -Wl,-soname '
+                    '-Wl,%s/$(notdir $@) -o "$$@" %s; }; link_cmd ' %
+                    (build_shared_flag, prefix.lib, inject_libs),
+                    'RANLIB=ls'
                 ])
+                # When building libpord, read AR from Makefile.inc instead of
+                # going through the make command line - this prevents various
+                # problems with the substring "$$@".
+                filter_file(r' AR="\$\(AR\)"', '', 'Makefile')
+                filter_file(r'^(INCLUDES = -I../include)',
+                            '\\1\ninclude ../../Makefile.inc',
+                            join_path('PORD', 'lib', 'Makefile'))
+
         else:
             makefile_conf.extend([
                 'LIBEXT  = .a',
@@ -197,24 +259,17 @@ class Mumps(Package):
                 fh.write(makefile_inc)
 
     def install(self, spec, prefix):
-        make_libs = []
-
-        # the choice to compile ?examples is to have kind of a sanity
-        # check on the libraries generated.
-        if '+float' in spec:
-            make_libs.append('sexamples')
-            if '+complex' in spec:
-                make_libs.append('cexamples')
-
-        if '+double' in spec:
-            make_libs.append('dexamples')
-            if '+complex' in spec:
-                make_libs.append('zexamples')
-
         self.write_makefile_inc()
 
         # Build fails in parallel
-        make(*make_libs, parallel=False)
+        # That is why we split the builds of 's', 'c', 'd', and/or 'z' which
+        # can be build one after the other, each using a parallel build.
+        letters_variants = [
+            ['s', '+float'], ['c', '+complex+float'],
+            ['d', '+double'], ['z', '+complex+double']]
+        for l, v in letters_variants:
+            if v in spec:
+                make(l + 'examples')
 
         install_tree('lib', prefix.lib)
         install_tree('include', prefix.include)
@@ -228,12 +283,28 @@ class Mumps(Package):
 
         # FIXME: extend the tests to mpirun -np 2 when build with MPI
         # FIXME: use something like numdiff to compare output files
-        with working_dir('examples'):
-            if '+float' in spec:
-                os.system('./ssimpletest < input_simpletest_real')
-                if '+complex' in spec:
-                    os.system('./csimpletest < input_simpletest_real')
-            if '+double' in spec:
-                os.system('./dsimpletest < input_simpletest_real')
-                if '+complex' in spec:
-                    os.system('./zsimpletest < input_simpletest_cmplx')
+        # Note: In some cases, when 'mpi' is enabled, the examples below cannot
+        # be run without 'mpirun', so we enabled the tests only if explicitly
+        # requested with the Spack '--test' option.
+        if self.run_tests:
+            with working_dir('examples'):
+                if '+float' in spec:
+                    ssimpletest = Executable('./ssimpletest')
+                    ssimpletest(input='input_simpletest_real')
+                    if '+complex' in spec:
+                        csimpletest = Executable('./csimpletest')
+                        csimpletest(input='input_simpletest_cmplx')
+                if '+double' in spec:
+                    dsimpletest = Executable('./dsimpletest')
+                    dsimpletest(input='input_simpletest_real')
+                    if '+complex' in spec:
+                        zsimpletest = Executable('./zsimpletest')
+                        zsimpletest(input='input_simpletest_cmplx')
+
+    @property
+    def libs(self):
+        component_libs = ['*mumps*', 'pord']
+        return find_libraries(['lib' + comp for comp in component_libs],
+                              root=self.prefix.lib,
+                              shared=('+shared' in self.spec),
+                              recursive=False) or None

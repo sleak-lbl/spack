@@ -1,35 +1,17 @@
-##############################################################################
-# Copyright (c) 2013-2016, Lawrence Livermore National Security, LLC.
-# Produced at the Lawrence Livermore National Laboratory.
+# Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+# Spack Project Developers. See the top-level COPYRIGHT file for details.
 #
-# This file is part of Spack.
-# Created by Todd Gamblin, tgamblin@llnl.gov, All rights reserved.
-# LLNL-CODE-647188
-#
-# For details, see https://github.com/llnl/spack
-# Please also see the LICENSE file for our notice and the LGPL.
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License (as
-# published by the Free Software Foundation) version 2.1, February 1999.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the IMPLIED WARRANTY OF
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the terms and
-# conditions of the GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public
-# License along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
-##############################################################################
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
 import os
-import spack
+
+from llnl.util.lang import memoized
+
 import spack.spec
 from spack.build_environment import dso_suffix
 from spack.spec import CompilerSpec
 from spack.util.executable import Executable, ProcessError
-from llnl.util.lang import memoized
+from spack.compilers.clang import Clang
 
 
 class ABI(object):
@@ -44,7 +26,7 @@ class ABI(object):
     @memoized
     def _gcc_get_libstdcxx_version(self, version):
         """Returns gcc ABI compatibility info by getting the library version of
-           a compiler's libstdc++.so or libgcc_s.so"""
+           a compiler's libstdc++ or libgcc_s"""
         spec = CompilerSpec("gcc", version)
         compilers = spack.compilers.compilers_for_spec(spec)
         if not compilers:
@@ -62,13 +44,18 @@ class ABI(object):
         else:
             return None
         try:
-            output = rungcc("--print-file-name=%s" % libname,
-                            return_output=True)
+            # Some gcc's are actually clang and don't respond properly to
+            # --print-file-name (they just print the filename, not the
+            # full path).  Ignore these and expect them to be handled as clang.
+            if Clang.default_version(rungcc.exe[0]) != 'unknown':
+                return None
+
+            output = rungcc("--print-file-name=%s" % libname, output=str)
         except ProcessError:
             return None
         if not output:
             return None
-        libpath = os.readlink(output.strip())
+        libpath = os.path.realpath(output.strip())
         if not libpath:
             return None
         return os.path.basename(libpath)

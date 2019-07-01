@@ -1,30 +1,11 @@
-##############################################################################
-# Copyright (c) 2013-2016, Lawrence Livermore National Security, LLC.
-# Produced at the Lawrence Livermore National Laboratory.
+# Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+# Spack Project Developers. See the top-level COPYRIGHT file for details.
 #
-# This file is part of Spack.
-# Created by Todd Gamblin, tgamblin@llnl.gov, All rights reserved.
-# LLNL-CODE-647188
-#
-# For details, see https://github.com/llnl/spack
-# Please also see the LICENSE file for our notice and the LGPL.
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License (as
-# published by the Free Software Foundation) version 2.1, February 1999.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the IMPLIED WARRANTY OF
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the terms and
-# conditions of the GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public
-# License along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
-##############################################################################
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
 from spack import *
+import glob
 import os
-import shutil
 import tempfile
 
 
@@ -36,11 +17,17 @@ class Ncl(Package):
 
     homepage = "https://www.ncl.ucar.edu"
 
-    version('6.3.0', '4834df63d3b56778441246303ab921c4',
-            url='https://www.earthsystemgrid.org/download/fileDownload.html?'
-                'logicalFileId=bec58cb3-cd9b-11e4-bb80-00c0f03d5b7c',
-            extension='tar.gz')
+    url = "https://github.com/NCAR/ncl/archive/6.4.0.tar.gz"
+
+    version('6.6.2', 'cad4ee47fbb744269146e64298f9efa206bc03e7b86671e9729d8986bb4bc30e')
+    version('6.5.0', '133446f3302eddf237db56bf349e1ebf228240a7320699acc339a3d7ee414591')
+    version('6.4.0', 'd891452cda7bb25afad9b6c876c73986')
+
     patch('spack_ncl.patch')
+    # Make ncl compile with hdf5 1.10 (upstream as of 6.5.0)
+    patch('hdf5.patch', when="@6.4.0")
+    # ymake-filter's buffer may overflow (upstream as of 6.5.0)
+    patch('ymake-filter.patch', when="@6.4.0")
 
     # This installation script is implemented according to this manual:
     # http://www.ncl.ucar.edu/Download/build_from_src.shtml
@@ -54,17 +41,35 @@ class Ncl(Package):
     # Non-optional dependencies according to the manual:
     depends_on('jpeg')
     depends_on('netcdf')
-    depends_on('cairo')
+    depends_on('cairo+X+pdf')
+
+    # Extra dependencies that may be missing from build system:
+    depends_on('bison', type='build')
+    depends_on('flex+lex')
+    depends_on('libiconv')
+    depends_on('tcsh')
 
     # Also, the manual says that ncl requires zlib, but that comes as a
     # mandatory dependency of libpng, which is a mandatory dependency of cairo.
+
+    # The following dependencies are required, otherwise several components
+    # fail to compile:
+    depends_on('curl')
+    depends_on('libiconv')
+    depends_on('libx11')
+    depends_on('libxaw')
+    depends_on('libxmu')
 
     # In Spack, we do not have an option to compile netcdf without netcdf-4
     # support, so we will tell the ncl configuration script that we want
     # support for netcdf-4, but the script assumes that hdf5 is compiled with
     # szip support. We introduce this restriction with the following dependency
     # statement.
-    depends_on('hdf5@:1.8+szip')
+    depends_on('hdf5+szip')
+    depends_on('szip')
+
+    # ESMF is only required at runtime (for ESMF_regridding.ncl)
+    depends_on('esmf', type='run')
 
     # In Spack, we also do not have an option to compile netcdf without DAP
     # support, so we will tell the ncl configuration script that we have it.
@@ -82,6 +87,25 @@ class Ncl(Package):
         md5='10aff8d7950f5e0e2fb6dd2e340be2c9',
         placement='triangle_src',
         when='+triangle')
+
+    sanity_check_is_file = ['bin/ncl']
+
+    def patch(self):
+        # Make configure scripts use Spack's tcsh
+        files = ['Configure'] + glob.glob('config/*')
+
+        filter_file('^#!/bin/csh -f', '#!/usr/bin/env csh', *files)
+
+    @run_before('install')
+    def filter_sbang(self):
+        # Filter sbang before install so Spack's sbang hook can fix it up
+        files = glob.glob('ncarg2d/src/bin/scripts/*')
+        files += glob.glob('ncarview/src/bin/scripts/*')
+        files += glob.glob('ni/src/scripts/*')
+
+        csh = join_path(self.spec['tcsh'].prefix.bin, 'csh')
+
+        filter_file('^#!/bin/csh', '#!{0}'.format(csh), *files)
 
     def install(self, spec, prefix):
 
@@ -108,7 +132,7 @@ class Ncl(Package):
 
         if self.compiler.name == 'gcc':
             fc_flags.append('-fno-range-check')
-            c2f_flags.extend(['-lgfortran'])
+            c2f_flags.extend(['-lgfortran', '-lm'])
         elif self.compiler.name == 'intel':
             fc_flags.append('-fp-model precise')
             cc_flags.append('-fp-model precise')
@@ -149,7 +173,7 @@ class Ncl(Package):
             # Parent installation directory :
             '\'' + self.spec.prefix + '\'\n',
             # System temp space directory   :
-            '\'' + tempfile.mkdtemp(prefix='ncl_ncar_') + '\'\n',
+            '\'' + tempfile.gettempdir() + '\'\n',
             # Build NetCDF4 feature support (optional)?
             'y\n'
         ]
@@ -180,6 +204,8 @@ class Ncl(Package):
             'y\n',
             # Build GDAL support (optional) into NCL?
             'y\n' if '+gdal' in self.spec else 'n\n',
+            # Build EEMD support (optional) into NCL?
+            'n\n',
             # Build Udunits-2 support (optional) into NCL?
             'y\n' if '+uduints2' in self.spec else 'n\n',
             # Build Vis5d+ support (optional) into NCL?
@@ -219,8 +245,8 @@ class Ncl(Package):
             triangle_src = join_path(self.stage.source_path, 'triangle_src')
             triangle_dst = join_path(self.stage.source_path, 'ni', 'src',
                                      'lib', 'hlu')
-            shutil.copy(join_path(triangle_src, 'triangle.h'), triangle_dst)
-            shutil.copy(join_path(triangle_src, 'triangle.c'), triangle_dst)
+            copy(join_path(triangle_src, 'triangle.h'), triangle_dst)
+            copy(join_path(triangle_src, 'triangle.c'), triangle_dst)
 
     @staticmethod
     def delete_files(*filenames):
@@ -228,6 +254,6 @@ class Ncl(Package):
             if os.path.exists(filename):
                 try:
                     os.remove(filename)
-                except OSError, e:
+                except OSError as e:
                     raise InstallError('Failed to delete file %s: %s' % (
                         e.filename, e.strerror))

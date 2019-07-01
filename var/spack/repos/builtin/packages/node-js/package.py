@@ -1,27 +1,8 @@
-##############################################################################
-# Copyright (c) 2013-2016, Lawrence Livermore National Security, LLC.
-# Produced at the Lawrence Livermore National Laboratory.
+# Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+# Spack Project Developers. See the top-level COPYRIGHT file for details.
 #
-# This file is part of Spack.
-# Created by Todd Gamblin, tgamblin@llnl.gov, All rights reserved.
-# LLNL-CODE-647188
-#
-# For details, see https://github.com/llnl/spack
-# Please also see the LICENSE file for our notice and the LGPL.
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License (as
-# published by the Free Software Foundation) version 2.1, February 1999.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the IMPLIED WARRANTY OF
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the terms and
-# conditions of the GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public
-# License along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
-##############################################################################
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
 from spack import *
 import sys
 import subprocess
@@ -34,9 +15,12 @@ class NodeJs(Package):
     homepage = "https://nodejs.org/"
     url      = "https://nodejs.org/download/release/v6.3.0/node-v6.3.0.tar.gz"
 
-    version('7.1.0', '1db5df2cb025f9c70e83d9cf21c4266a')
-    version('6.3.0', '8c14e5c89d66d4d060c91b3ba15dfd31')
-    version('6.2.2', '1120e8bf191fdaee42206d031935210d')
+    version('11.1.0',  '3f53b5ac25b2d36ad538267083c0e603d9236867a936c22a9116d95fa10c60d5')
+    version('10.13.0', 'aa06825fff375ece7c0d881ae0de5d402a857e8cabff9b4a50f2f0b7b44906be')
+    version('8.9.1',   '7482b2523f72000d1b6060c38945026b')
+    version('7.1.0',   '1db5df2cb025f9c70e83d9cf21c4266a')
+    version('6.3.0',   '8c14e5c89d66d4d060c91b3ba15dfd31')
+    version('6.2.2',   '1120e8bf191fdaee42206d031935210d')
 
     # variant('bash-completion', default=False, description='Build with bash-completion support for npm')  # NOQA: ignore=E501
     variant('debug', default=False, description='Include debugger support')
@@ -46,11 +30,13 @@ class NodeJs(Package):
     variant('zlib', default=True,  description='Build with Spacks zlib instead of the bundled version')
 
     depends_on('libtool', type='build', when=sys.platform != 'darwin')
-    depends_on('pkg-config', type='build')
-    depends_on('python@2.7:2.7.999', type='build')
+    depends_on('pkgconfig', type='build')
+    depends_on('python@2.7:2.8', type='build')
     # depends_on('bash-completion', when="+bash-completion")
     depends_on('icu4c', when='+icu4c')
-    depends_on('openssl', when='+openssl')
+    depends_on('openssl@1.0.2d:1.0.99', when='@:9+openssl')
+    depends_on('openssl@1.1:', when='@10:+openssl')
+    depends_on('zlib', when='+zlib')
 
     def install(self, spec, prefix):
         options = []
@@ -63,10 +49,10 @@ class NodeJs(Package):
         # On OSX, the system libtool must be used
         # So, we ensure that this is the case by...
         if sys.platform == 'darwin':
-            process_pipe = subprocess.Popen(["which", "libtool"], 
+            process_pipe = subprocess.Popen(["which", "libtool"],
                                             stdout=subprocess.PIPE)
             result_which = process_pipe.communicate()[0]
-            process_pipe = subprocess.Popen(["whereis", "libtool"], 
+            process_pipe = subprocess.Popen(["whereis", "libtool"],
                                             stdout=subprocess.PIPE)
             result_whereis = process_pipe.communicate()[0]
             assert result_which == result_whereis, (

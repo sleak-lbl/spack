@@ -1,30 +1,14 @@
-##############################################################################
-# Copyright (c) 2013-2016, Lawrence Livermore National Security, LLC.
-# Produced at the Lawrence Livermore National Laboratory.
+# Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+# Spack Project Developers. See the top-level COPYRIGHT file for details.
 #
-# This file is part of Spack.
-# Created by Todd Gamblin, tgamblin@llnl.gov, All rights reserved.
-# LLNL-CODE-647188
-#
-# For details, see https://github.com/llnl/spack
-# Please also see the LICENSE file for our notice and the LGPL.
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License (as
-# published by the Free Software Foundation) version 2.1, February 1999.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the IMPLIED WARRANTY OF
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the terms and
-# conditions of the GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public
-# License along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
-##############################################################################
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
 import re
 import shlex
+import sys
 import itertools
+from six import string_types
+
 import spack.error
 
 
@@ -46,9 +30,8 @@ class Token:
     def is_a(self, type):
         return self.type == type
 
-    def __cmp__(self, other):
-        return cmp((self.type, self.value),
-                   (other.type, other.value))
+    def __eq__(self, other):
+        return (self.type == other.type) and (self.value == other.value)
 
 
 class Lexer(object):
@@ -78,7 +61,6 @@ class Lexer(object):
         if self.mode == 1:
             scanner = self.scanner1
             mode_switches = self.mode_switches_10
-
         tokens, remainder = scanner.scan(word)
         remainder_used = 0
 
@@ -118,7 +100,7 @@ class Parser(object):
     def gettok(self):
         """Puts the next token in the input stream into self.next."""
         try:
-            self.next = self.tokens.next()
+            self.next = next(self.tokens)
         except StopIteration:
             self.next = None
 
@@ -159,8 +141,11 @@ class Parser(object):
             sys.exit(1)
 
     def setup(self, text):
-        if isinstance(text, basestring):
-            text = shlex.split(text)
+        if isinstance(text, string_types):
+            if sys.version_info >= (2, 7, 9):
+                text = shlex.split(text)
+            else:
+                text = shlex.split(text.encode('utf-8'))
         self.text = text
         self.push_tokens(self.lexer.lex(text))
 

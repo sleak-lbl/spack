@@ -1,27 +1,8 @@
-##############################################################################
-# Copyright (c) 2013-2016, Lawrence Livermore National Security, LLC.
-# Produced at the Lawrence Livermore National Laboratory.
+# Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+# Spack Project Developers. See the top-level COPYRIGHT file for details.
 #
-# This file is part of Spack.
-# Created by Todd Gamblin, tgamblin@llnl.gov, All rights reserved.
-# LLNL-CODE-647188
-#
-# For details, see https://github.com/llnl/spack
-# Please also see the LICENSE file for our notice and the LGPL.
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License (as
-# published by the Free Software Foundation) version 2.1, February 1999.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the IMPLIED WARRANTY OF
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the terms and
-# conditions of the GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public
-# License along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
-##############################################################################
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
 from spack import *
 
 
@@ -29,11 +10,25 @@ class Libsigsegv(AutotoolsPackage):
     """GNU libsigsegv is a library for handling page faults in user mode."""
 
     homepage = "https://www.gnu.org/software/libsigsegv/"
-    url      = "ftp://ftp.gnu.org/gnu/libsigsegv/libsigsegv-2.10.tar.gz"
+    url      = "https://ftpmirror.gnu.org/libsigsegv/libsigsegv-2.11.tar.gz"
 
     patch('patch.new_config_guess', when='@2.10')
 
+    variant("shared", default=True, description="Enable shared libraries")
+    version('2.11', 'a812d9481f6097f705599b218eea349f')
     version('2.10', '7f96fb1f65b3b8cbc1582fb7be774f0f')
 
+    def flag_handler(self, name, flags):
+        if name == 'ldflags' and self.spec.satisfies('~shared platform=cray'):
+            # Cray compiler wrappers link -lc. Libsigsegv links -lpthreads.
+            # linking -lc -lpthreads statically errors on multiple definitions.
+            flags.append('-Wl,--allow-multiple-definition')
+        return(flags, None, None)
+
     def configure_args(self):
-        return ['--enable-shared']
+        args = []
+        if "+shared" in self.spec:
+            args.append("--enable-shared")
+        else:
+            args.append("--disable-shared")
+        return args

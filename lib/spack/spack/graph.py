@@ -1,28 +1,9 @@
-##############################################################################
-# Copyright (c) 2013-2016, Lawrence Livermore National Security, LLC.
-# Produced at the Lawrence Livermore National Laboratory.
+# Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+# Spack Project Developers. See the top-level COPYRIGHT file for details.
 #
-# This file is part of Spack.
-# Created by Todd Gamblin, tgamblin@llnl.gov, All rights reserved.
-# LLNL-CODE-647188
-#
-# For details, see https://github.com/llnl/spack
-# Please also see the LICENSE file for our notice and the LGPL.
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License (as
-# published by the Free Software Foundation) version 2.1, February 1999.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the IMPLIED WARRANTY OF
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the terms and
-# conditions of the GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public
-# License along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
-##############################################################################
-"""Functions for graphing DAGs of dependencies.
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
+r"""Functions for graphing DAGs of dependencies.
 
 This file contains code for graphing DAGs of software packages
 (i.e. Spack specs).  There are two main functions you probably care
@@ -61,18 +42,18 @@ Note that ``graph_ascii`` assumes a single spec while ``graph_dot``
 can take a number of specs as input.
 
 """
+import sys
+from heapq import heapify, heappop, heappush
 
-from heapq import *
+from llnl.util.tty.color import ColorStream
 
-from llnl.util.lang import *
-from llnl.util.tty.color import *
+from spack.dependency import all_deptypes, canonical_deptype
 
-from spack.spec import *
 
 __all__ = ['topological_sort', 'graph_ascii', 'AsciiGraph', 'graph_dot']
 
 
-def topological_sort(spec, reverse=False, deptype=None):
+def topological_sort(spec, reverse=False, deptype='all'):
     """Topological sort for specs.
 
     Return a list of dependency specs sorted topologically.  The spec
@@ -138,10 +119,10 @@ class AsciiGraph(object):
     def __init__(self):
         # These can be set after initialization or after a call to
         # graph() to change behavior.
-        self.node_character = '*'
+        self.node_character = 'o'
         self.debug = False
         self.indent = 0
-        self.deptype = alldeps
+        self.deptype = all_deptypes
 
         # These are colors in the order they'll be used for edges.
         # See llnl.util.tty.color for details on color characters.
@@ -364,7 +345,7 @@ class AsciiGraph(object):
         self._set_state(EXPAND_RIGHT, index)
         self._out.write("\n")
 
-    def write(self, spec, **kwargs):
+    def write(self, spec, color=None, out=None):
         """Write out an ascii graph of the provided spec.
 
         Arguments:
@@ -378,14 +359,13 @@ class AsciiGraph(object):
                  based on output file.
 
         """
-        out = kwargs.get('out', None)
-        if not out:
+        if out is None:
             out = sys.stdout
 
-        color = kwargs.get('color', None)
-        if not color:
+        if color is None:
             color = out.isatty()
-        self._out = ColorStream(sys.stdout, color=color)
+
+        self._out = ColorStream(out, color=color)
 
         # We'll traverse the spec in topo order as we graph it.
         topo_order = topological_sort(spec, reverse=True, deptype=self.deptype)
@@ -494,7 +474,7 @@ class AsciiGraph(object):
 
 
 def graph_ascii(spec, node='o', out=None, debug=False,
-                indent=0, color=None, deptype=None):
+                indent=0, color=None, deptype='all'):
     graph = AsciiGraph()
     graph.debug = debug
     graph.indent = indent
@@ -505,85 +485,78 @@ def graph_ascii(spec, node='o', out=None, debug=False,
     graph.write(spec, color=color, out=out)
 
 
-def graph_dot(specs, deptype=None, static=False, out=None):
+def graph_dot(specs, deptype='all', static=False, out=None):
     """Generate a graph in dot format of all provided specs.
 
     Print out a dot formatted graph of all the dependencies between
     package.  Output can be passed to graphviz, e.g.:
 
+    .. code-block:: console
+
         spack graph --dot qt | dot -Tpdf > spack-graph.pdf
 
     """
+    if not specs:
+        raise ValueError("Must provide specs to graph_dot")
+
     if out is None:
         out = sys.stdout
+    deptype = canonical_deptype(deptype)
 
-    if deptype is None:
-        deptype = alldeps
+    def static_graph(spec, deptype):
+        pkg = spec.package
+        possible = pkg.possible_dependencies(
+            expand_virtuals=True, deptype=deptype)
+
+        nodes = set()  # elements are (node name, node label)
+        edges = set()  # elements are (src key, dest key)
+        for name, deps in possible.items():
+            nodes.add((name, name))
+            edges.update((name, d) for d in deps)
+        return nodes, edges
+
+    def dynamic_graph(spec, deptypes):
+        nodes = set()  # elements are (node key, node label)
+        edges = set()  # elements are (src key, dest key)
+        for s in spec.traverse(deptype=deptype):
+            nodes.add((s.dag_hash(), s.name))
+            for d in s.dependencies(deptype=deptype):
+                edge = (s.dag_hash(), d.dag_hash())
+                edges.add(edge)
+        return nodes, edges
+
+    nodes = set()
+    edges = set()
+    for spec in specs:
+        if static:
+            n, e = static_graph(spec, deptype)
+        else:
+            n, e = dynamic_graph(spec, deptype)
+        nodes.update(n)
+        edges.update(e)
 
     out.write('digraph G {\n')
     out.write('  labelloc = "b"\n')
     out.write('  rankdir = "TB"\n')
-    out.write('  ranksep = "5"\n')
-    out.write('node[\n')
+    out.write('  ranksep = "1"\n')
+    out.write('  edge[\n')
+    out.write('     penwidth=4')
+    out.write('  ]\n')
+    out.write('  node[\n')
     out.write('     fontname=Monaco,\n')
-    out.write('     penwidth=2,\n')
-    out.write('     fontsize=12,\n')
-    out.write('     margin=.1,\n')
+    out.write('     penwidth=4,\n')
+    out.write('     fontsize=24,\n')
+    out.write('     margin=.2,\n')
     out.write('     shape=box,\n')
     out.write('     fillcolor=lightblue,\n')
-    out.write('     style="rounded,filled"]\n')
+    out.write('     style="rounded,filled"')
+    out.write('  ]\n')
 
     out.write('\n')
-
-    def q(string):
-        return '"%s"' % string
-
-    if not specs:
-        raise ValueError("Must provide specs ot graph_dot")
-
-    # Static graph includes anything a package COULD depend on.
-    if static:
-        names = set.union(*[s.package.possible_dependencies() for s in specs])
-        specs = [Spec(name) for name in names]
-
-    labeled = set()
-
-    def label(key, label):
-        if key not in labeled:
-            out.write('  "%s" [label="%s"]\n' % (key, label))
-            labeled.add(key)
-
-    deps = set()
-    for spec in specs:
-        if static:
-            out.write('  "%s" [label="%s"]\n' % (spec.name, spec.name))
-
-            # Skip virtual specs (we'll find out about them from concrete ones.
-            if spec.virtual:
-                continue
-
-            # Add edges for each depends_on in the package.
-            for dep_name, dep in spec.package.dependencies.iteritems():
-                deps.add((spec.name, dep_name))
-
-            # If the package provides something, add an edge for that.
-            for provider in set(s.name for s in spec.package.provided):
-                deps.add((provider, spec.name))
-
-        else:
-            def key_label(s):
-                return s.dag_hash(), "%s-%s" % (s.name, s.dag_hash(7))
-
-            for s in spec.traverse(deptype=deptype):
-                skey, slabel = key_label(s)
-                out.write('  "%s" [label="%s"]\n' % (skey, slabel))
-
-                for d in s.dependencies(deptype=deptype):
-                    dkey, _ = key_label(d)
-                    deps.add((skey, dkey))
+    for key, label in nodes:
+        out.write('  "%s" [label="%s"]\n' % (key, label))
 
     out.write('\n')
-
-    for pair in deps:
-        out.write('  "%s" -> "%s"\n' % pair)
+    for src, dest in edges:
+        out.write('  "%s" -> "%s"\n' % (src, dest))
     out.write('}\n')

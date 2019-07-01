@@ -1,72 +1,128 @@
-##############################################################################
-# Copyright (c) 2013-2016, Lawrence Livermore National Security, LLC.
-# Produced at the Lawrence Livermore National Laboratory.
+# Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+# Spack Project Developers. See the top-level COPYRIGHT file for details.
 #
-# This file is part of Spack.
-# Created by Todd Gamblin, tgamblin@llnl.gov, All rights reserved.
-# LLNL-CODE-647188
-#
-# For details, see https://github.com/llnl/spack
-# Please also see the LICENSE file for our notice and the LGPL.
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License (as
-# published by the Free Software Foundation) version 2.1, February 1999.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the IMPLIED WARRANTY OF
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the terms and
-# conditions of the GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public
-# License along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
-##############################################################################
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
 """Test that the Stage class works correctly."""
-import collections
 import os
+import collections
+import shutil
+import tempfile
+import getpass
 
 import pytest
-import spack
+
+from llnl.util.filesystem import working_dir
+
+import spack.paths
 import spack.stage
 import spack.util.executable
-from llnl.util.filesystem import join_path
-from spack.stage import Stage
+
+from spack.resource import Resource
+from spack.stage import Stage, StageComposite, ResourceStage
+
+# The following values are used for common fetch and stage mocking fixtures:
+_archive_base = 'test-files'
+_archive_fn = '%s.tar.gz' % _archive_base
+_extra_fn = 'extra.sh'
+_hidden_fn = '.hidden'
+_readme_fn = 'README.txt'
+
+_extra_contents = '#!/bin/sh\n'
+_hidden_contents = ''
+_readme_contents = 'hello world!\n'
+
+# TODO: Replace the following with an enum once guarantee supported (or
+# include enum34 for python versions < 3.4.
+_include_readme = 1
+_include_hidden = 2
+_include_extra = 3
+
+# Mock fetch directories are expected to appear as follows:
+#
+# TMPDIR/
+#     _archive_fn     archive_url = file:///path/to/_archive_fn
+#
+# Mock expanded stage directories are expected to have one of two forms,
+# depending on how the tarball expands.  Non-exploding tarballs are expected
+# to have the following structure:
+#
+# TMPDIR/                 temp stage dir
+#     src/                well-known stage source directory
+#         _readme_fn      Optional test_readme (contains _readme_contents)
+#     _hidden_fn          Optional hidden file (contains _hidden_contents)
+#     _archive_fn         archive_url = file:///path/to/_archive_fn
+#
+# while exploding tarball directories are expected to be structured as follows:
+#
+# TMPDIR/                 temp stage dir
+#     src/                well-known stage source directory
+#         archive_name/   archive dir
+#             _readme_fn  test_readme (contains _readme_contents)
+#         _extra_fn       test_extra file (contains _extra_contents)
+#     _archive_fn         archive_url = file:///path/to/_archive_fn
+#
 
 
-def check_chdir_to_source(stage, stage_name):
+def check_expand_archive(stage, stage_name, expected_file_list):
+    """
+    Ensure the expanded archive directory contains the expected structure and
+    files as described in the module-level comments above.
+    """
     stage_path = get_stage_path(stage, stage_name)
-    archive_dir = 'test-files'
-    assert join_path(
-        os.path.realpath(stage_path), archive_dir
-    ) == os.getcwd()
+    archive_dir = spack.stage._source_path_subdir
 
+    stage_contents = os.listdir(stage_path)
+    assert _archive_fn in stage_contents
+    assert archive_dir in stage_contents
 
-def check_expand_archive(stage, stage_name, mock_archive):
-    stage_path = get_stage_path(stage, stage_name)
-    archive_name = 'test-files.tar.gz'
-    archive_dir = 'test-files'
-    assert archive_name in os.listdir(stage_path)
-    assert archive_dir in os.listdir(stage_path)
+    source_path = os.path.join(stage_path, archive_dir)
+    assert source_path == stage.source_path
 
-    assert join_path(stage_path, archive_dir) == stage.source_path
+    source_contents = os.listdir(source_path)
 
-    readme = join_path(stage_path, archive_dir, 'README.txt')
-    assert os.path.isfile(readme)
-    with open(readme) as file:
-        'hello world!\n' == file.read()
+    for _include in expected_file_list:
+        if _include == _include_hidden:
+            # The hidden file represent the HFS metadata associated with Mac
+            # OS X tar files so is expected to be in the same directory as
+            # the archive directory.
+            assert _hidden_fn in stage_contents
+
+            fn = os.path.join(stage_path, _hidden_fn)
+            contents = _hidden_contents
+
+        elif _include == _include_readme:
+            # The standard README.txt file will be in the source directory if
+            # the tarball didn't explode; otherwise, it will be in the
+            # original archive subdirectory of it.
+            if _archive_base in source_contents:
+                fn = os.path.join(source_path, _archive_base, _readme_fn)
+            else:
+                fn = os.path.join(source_path, _readme_fn)
+            contents = _readme_contents
+
+        elif _include == _include_extra:
+            assert _extra_fn in source_contents
+
+            fn = os.path.join(source_path, _extra_fn)
+            contents = _extra_contents
+
+        else:
+            assert False
+
+        assert os.path.isfile(fn)
+        with open(fn) as _file:
+            _file.read() == contents
 
 
 def check_fetch(stage, stage_name):
-    archive_name = 'test-files.tar.gz'
+    """
+    Ensure the fetch resulted in a properly placed archive file as described in
+    the module-level comments.
+    """
     stage_path = get_stage_path(stage, stage_name)
-    assert archive_name in os.listdir(stage_path)
-    assert join_path(stage_path, archive_name) == stage.fetcher.archive_file
-
-
-def check_chdir(stage, stage_name):
-    stage_path = get_stage_path(stage, stage_name)
-    assert os.path.realpath(stage_path) == os.getcwd()
+    assert _archive_fn in os.listdir(stage_path)
+    assert os.path.join(stage_path, _archive_fn) == stage.fetcher.archive_file
 
 
 def check_destroy(stage, stage_name):
@@ -104,7 +160,7 @@ def check_setup(stage, stage_name, archive):
 
     else:
         # Make sure the stage path is NOT a link for a non-tmp stage
-        assert os.path.islink(stage_path)
+        assert not os.path.islink(stage_path)
 
 
 def get_stage_path(stage, stage_name):
@@ -113,79 +169,235 @@ def get_stage_path(stage, stage_name):
     """
     if stage_name is not None:
         # If it is a named stage, we know where the stage should be
-        return join_path(spack.stage_path, stage_name)
+        return os.path.join(spack.paths.stage_path, stage_name)
     else:
         # If it's unnamed, ensure that we ran mkdtemp in the right spot.
         assert stage.path is not None
-        assert stage.path.startswith(spack.stage_path)
+        assert stage.path.startswith(spack.paths.stage_path)
         return stage.path
 
 
-@pytest.fixture()
-def tmpdir_for_stage(mock_archive):
-    """Uses a temporary directory for staging"""
-    current = spack.stage_path
-    spack.config.update_config(
-        'config',
-        {'build_stage': [str(mock_archive.test_tmp_dir)]},
-        scope='user'
-    )
+@pytest.fixture
+def no_tmp_root_stage(monkeypatch):
+    """
+    Disable use of a temporary root for staging.
+
+    Note that it can be important for other tests that the previous settings be
+    restored when the test case is over.
+    """
+    monkeypatch.setattr(spack.stage, '_tmp_root', None)
+    monkeypatch.setattr(spack.stage, '_use_tmp_stage', False)
     yield
-    spack.config.update_config(
-        'config', {'build_stage': [current]}, scope='user'
-    )
 
 
-@pytest.fixture()
-def mock_archive(tmpdir, monkeypatch):
-    """Creates a mock archive with the structure expected by the tests"""
-    # Mock up a stage area that looks like this:
-    #
-    # TMPDIR/                    test_files_dir
-    #     tmp/                   test_tmp_path (where stage should be)
-    #     test-files/            archive_dir_path
-    #         README.txt         test_readme (contains "hello world!\n")
-    #     test-files.tar.gz      archive_url = file:///path/to/this
-    #
-    test_tmp_path = tmpdir.join('tmp')
-    # set _test_tmp_path as the default test directory to use for stages.
-    spack.config.update_config(
-        'config', {'build_stage': [str(test_tmp_path)]}, scope='user'
-    )
+@pytest.fixture
+def non_user_path_for_stage():
+    """
+    Use a non-user path for staging.
 
-    archive_dir = tmpdir.join('test-files')
-    archive_name = 'test-files.tar.gz'
-    archive = tmpdir.join(archive_name)
-    archive_url = 'file://' + str(archive)
-    test_readme = archive_dir.join('README.txt')
-    archive_dir.ensure(dir=True)
-    test_tmp_path.ensure(dir=True)
-    test_readme.write('hello world!\n')
+    Note that it can be important for other tests that the previous settings be
+    restored when the test case is over.
+    """
+    current = spack.config.get('config:build_stage')
+    spack.config.set('config', {'build_stage': ['/var/spack/non-path']},
+                     scope='user')
+    yield
+    spack.config.set('config', {'build_stage': current}, scope='user')
 
-    current = tmpdir.chdir()
-    tar = spack.util.executable.which('tar', required=True)
-    tar('czf', str(archive_name), 'test-files')
-    current.chdir()
 
-    # Make spack use the test environment for tmp stuff.
+@pytest.fixture
+def stage_path_for_stage():
+    """
+    Use the basic stage_path for staging.
+
+    Note that it can be important for other tests that the previous settings be
+    restored when the test case is over.
+    """
+    current = spack.config.get('config:build_stage')
+    spack.config.set('config',
+                     {'build_stage': spack.paths.stage_path}, scope='user')
+    yield
+    spack.config.set('config', {'build_stage': current}, scope='user')
+
+
+@pytest.fixture
+def tmp_path_for_stage(tmpdir):
+    """
+    Use a built-in, temporary, test directory for staging.
+
+    Note that it can be important for other tests that the previous settings be
+    restored when the test case is over.
+    """
+    current = spack.config.get('config:build_stage')
+    spack.config.set('config', {'build_stage': [str(tmpdir)]}, scope='user')
+    yield
+    spack.config.set('config', {'build_stage': current}, scope='user')
+
+
+@pytest.fixture
+def tmp_root_stage(monkeypatch):
+    """
+    Enable use of a temporary root for staging.
+
+    Note that it can be important for other tests that the previous settings be
+    restored when the test case is over.
+    """
     monkeypatch.setattr(spack.stage, '_tmp_root', None)
     monkeypatch.setattr(spack.stage, '_use_tmp_stage', True)
-
-    Archive = collections.namedtuple(
-        'Archive', ['url', 'tmpdir', 'test_tmp_dir', 'archive_dir']
-    )
-    yield Archive(
-        url=archive_url,
-        tmpdir=tmpdir,
-        test_tmp_dir=test_tmp_path,
-        archive_dir=archive_dir
-    )
-    # record this since this test changes to directories that will
-    # be removed.
-    current.chdir()
+    yield
 
 
-@pytest.fixture()
+@pytest.fixture
+def tmpdir_for_stage(mock_stage_archive):
+    """
+    Use the mock_stage_archive's temporary directory for staging.
+
+    Note that it can be important for other tests that the previous settings be
+    restored when the test case is over.
+    """
+    archive = mock_stage_archive()
+    current = spack.config.get('config:build_stage')
+    spack.config.set(
+        'config',
+        {'build_stage': [str(archive.test_tmp_dir)]},
+        scope='user')
+    yield
+    spack.config.set('config', {'build_stage': current}, scope='user')
+
+
+@pytest.fixture
+def tmp_build_stage_dir(tmpdir):
+    """Establish the temporary build_stage for the mock archive."""
+    test_tmp_path = tmpdir.join('tmp')
+
+    # Set test_tmp_path as the default test directory to use for stages.
+    current = spack.config.get('config:build_stage')
+    spack.config.set('config',
+                     {'build_stage': [str(test_tmp_path)]}, scope='user')
+
+    yield (tmpdir, test_tmp_path)
+
+    spack.config.set('config', {'build_stage': current}, scope='user')
+
+
+@pytest.fixture
+def mock_stage_archive(tmp_build_stage_dir, tmp_root_stage, request):
+    """
+    Create the directories and files for the staged mock archive.
+
+    Note that it can be important for other tests that the previous settings be
+    restored when the test case is over.
+    """
+    # Mock up a stage area that looks like this:
+    #
+    # tmpdir/                test_files_dir
+    #     tmp/               test_tmp_path (where stage should be)
+    #     <_archive_base>/   archive_dir_path
+    #         <_readme_fn>   Optional test_readme (contains _readme_contents)
+    #     <_extra_fn>        Optional extra file (contains _extra_contents)
+    #     <_hidden_fn>       Optional hidden file (contains _hidden_contents)
+    #     <_archive_fn>      archive_url = file:///path/to/<_archive_fn>
+    #
+    def create_stage_archive(expected_file_list=[_include_readme]):
+        tmpdir, test_tmp_path = tmp_build_stage_dir
+        test_tmp_path.ensure(dir=True)
+
+        # Create the archive directory and associated file
+        archive_dir = tmpdir.join(_archive_base)
+        archive = tmpdir.join(_archive_fn)
+        archive_url = 'file://' + str(archive)
+        archive_dir.ensure(dir=True)
+
+        # Create the optional files as requested and make sure expanded
+        # archive peers are included.
+        tar_args = ['czf', str(_archive_fn), _archive_base]
+        for _include in expected_file_list:
+            if _include == _include_hidden:
+                # The hidden file case stands in for the way Mac OS X tar files
+                # represent HFS metadata.  Locate in the same directory as the
+                # archive file.
+                tar_args.append(_hidden_fn)
+                fn, contents = (tmpdir.join(_hidden_fn), _hidden_contents)
+
+            elif _include == _include_readme:
+                # The usual README.txt file is contained in the archive dir.
+                fn, contents = (archive_dir.join(_readme_fn), _readme_contents)
+
+            elif _include == _include_extra:
+                # The extra file stands in for exploding tar files so needs
+                # to be in the same directory as the archive file.
+                tar_args.append(_extra_fn)
+                fn, contents = (tmpdir.join(_extra_fn), _extra_contents)
+            else:
+                break
+
+            fn.write(contents)
+
+        # Create the archive file
+        with tmpdir.as_cwd():
+            tar = spack.util.executable.which('tar', required=True)
+            tar(*tar_args)
+
+        Archive = collections.namedtuple(
+            'Archive', ['url', 'tmpdir', 'test_tmp_dir', 'archive_dir']
+        )
+        return Archive(url=archive_url, tmpdir=tmpdir,
+                       test_tmp_dir=test_tmp_path, archive_dir=archive_dir)
+
+    return create_stage_archive
+
+
+@pytest.fixture
+def mock_noexpand_resource(tmpdir):
+    """Set up a non-expandable resource in the tmpdir prior to staging."""
+    test_resource = tmpdir.join('resource-no-expand.sh')
+    test_resource.write("an example resource")
+    return str(test_resource)
+
+
+@pytest.fixture
+def mock_expand_resource(tmpdir):
+    """Sets up an expandable resource in tmpdir prior to staging."""
+    resource_dir = tmpdir.join('resource-expand')
+    archive_name = 'resource.tar.gz'
+    archive = tmpdir.join(archive_name)
+    archive_url = 'file://' + str(archive)
+    test_file = resource_dir.join('resource-file.txt')
+    resource_dir.ensure(dir=True)
+    test_file.write('test content\n')
+
+    with tmpdir.as_cwd():
+        tar = spack.util.executable.which('tar', required=True)
+        tar('czf', str(archive_name), 'resource-expand')
+
+    MockResource = collections.namedtuple(
+        'MockResource', ['url', 'files'])
+
+    return MockResource(archive_url, ['resource-file.txt'])
+
+
+@pytest.fixture
+def composite_stage_with_expanding_resource(
+        mock_stage_archive, mock_expand_resource):
+    """Sets up a composite for expanding resources prior to staging."""
+    composite_stage = StageComposite()
+    archive = mock_stage_archive()
+    root_stage = Stage(archive.url)
+    composite_stage.append(root_stage)
+
+    test_resource_fetcher = spack.fetch_strategy.from_kwargs(
+        url=mock_expand_resource.url)
+    # Specify that the resource files are to be placed in the 'resource-dir'
+    # directory
+    test_resource = Resource(
+        'test_resource', test_resource_fetcher, '', 'resource-dir')
+    resource_stage = ResourceStage(
+        test_resource_fetcher, root_stage, test_resource)
+    composite_stage.append(resource_stage)
+    return composite_stage, root_stage, resource_stage
+
+
+@pytest.fixture
 def failing_search_fn():
     """Returns a search function that fails! Always!"""
     def _mock():
@@ -193,7 +405,7 @@ def failing_search_fn():
     return _mock
 
 
-@pytest.fixture()
+@pytest.fixture
 def failing_fetch_strategy():
     """Returns a fetch strategy that fails."""
     class FailingFetchStrategy(spack.fetch_strategy.FetchStrategy):
@@ -205,7 +417,7 @@ def failing_fetch_strategy():
     return FailingFetchStrategy()
 
 
-@pytest.fixture()
+@pytest.fixture
 def search_fn():
     """Returns a search function that always succeeds."""
     class _Mock(object):
@@ -218,67 +430,104 @@ def search_fn():
     return _Mock()
 
 
-@pytest.mark.usefixtures('builtin_mock')
+@pytest.mark.usefixtures('mock_packages')
 class TestStage(object):
 
     stage_name = 'spack-test-stage'
 
     @pytest.mark.usefixtures('tmpdir_for_stage')
-    def test_setup_and_destroy_name_with_tmp(self, mock_archive):
-        with Stage(mock_archive.url, name=self.stage_name) as stage:
-            check_setup(stage, self.stage_name, mock_archive)
+    def test_setup_and_destroy_name_with_tmp(self, mock_stage_archive):
+        archive = mock_stage_archive()
+        with Stage(archive.url, name=self.stage_name) as stage:
+            check_setup(stage, self.stage_name, archive)
         check_destroy(stage, self.stage_name)
 
-    def test_setup_and_destroy_name_without_tmp(self, mock_archive):
-        with Stage(mock_archive.url, name=self.stage_name) as stage:
-            check_setup(stage, self.stage_name, mock_archive)
+    def test_setup_and_destroy_name_without_tmp(self, mock_stage_archive):
+        archive = mock_stage_archive()
+        with Stage(archive.url, name=self.stage_name) as stage:
+            check_setup(stage, self.stage_name, archive)
         check_destroy(stage, self.stage_name)
 
     @pytest.mark.usefixtures('tmpdir_for_stage')
-    def test_setup_and_destroy_no_name_with_tmp(self, mock_archive):
-        with Stage(mock_archive.url) as stage:
-            check_setup(stage, None, mock_archive)
+    def test_setup_and_destroy_no_name_with_tmp(self, mock_stage_archive):
+        archive = mock_stage_archive()
+        with Stage(archive.url) as stage:
+            check_setup(stage, None, archive)
         check_destroy(stage, None)
 
-    def test_setup_and_destroy_no_name_without_tmp(self, mock_archive):
-        with Stage(mock_archive.url) as stage:
-            check_setup(stage, None, mock_archive)
+    @pytest.mark.disable_clean_stage_check
+    @pytest.mark.usefixtures('tmpdir_for_stage')
+    def test_composite_stage_with_noexpand_resource(
+            self, mock_stage_archive, mock_noexpand_resource):
+        archive = mock_stage_archive()
+        composite_stage = StageComposite()
+        root_stage = Stage(archive.url)
+        composite_stage.append(root_stage)
+
+        resource_dst_name = 'resource-dst-name.sh'
+        test_resource_fetcher = spack.fetch_strategy.from_kwargs(
+            url='file://' + mock_noexpand_resource, expand=False)
+        test_resource = Resource(
+            'test_resource', test_resource_fetcher, resource_dst_name, None)
+        resource_stage = ResourceStage(
+            test_resource_fetcher, root_stage, test_resource)
+        composite_stage.append(resource_stage)
+
+        composite_stage.create()
+        composite_stage.fetch()
+        composite_stage.expand_archive()
+        assert os.path.exists(
+            os.path.join(composite_stage.source_path, resource_dst_name))
+
+    @pytest.mark.disable_clean_stage_check
+    @pytest.mark.usefixtures('tmpdir_for_stage')
+    def test_composite_stage_with_expand_resource(
+            self, mock_stage_archive, mock_expand_resource,
+            composite_stage_with_expanding_resource):
+
+        composite_stage, root_stage, resource_stage = (
+            composite_stage_with_expanding_resource)
+
+        composite_stage.create()
+        composite_stage.fetch()
+        composite_stage.expand_archive()
+
+        for fname in mock_expand_resource.files:
+            file_path = os.path.join(
+                root_stage.source_path, 'resource-dir', fname)
+            assert os.path.exists(file_path)
+
+    def test_setup_and_destroy_no_name_without_tmp(self, mock_stage_archive):
+        archive = mock_stage_archive()
+        with Stage(archive.url) as stage:
+            check_setup(stage, None, archive)
         check_destroy(stage, None)
 
-    def test_chdir(self, mock_archive):
-        with Stage(mock_archive.url, name=self.stage_name) as stage:
-            stage.chdir()
-            check_setup(stage, self.stage_name, mock_archive)
-            check_chdir(stage, self.stage_name)
-        check_destroy(stage, self.stage_name)
-
-    def test_fetch(self, mock_archive):
-        with Stage(mock_archive.url, name=self.stage_name) as stage:
-            stage.fetch()
-            check_setup(stage, self.stage_name, mock_archive)
-            check_chdir(stage, self.stage_name)
-            check_fetch(stage, self.stage_name)
-        check_destroy(stage, self.stage_name)
+    @pytest.mark.parametrize('debug', [False, True])
+    def test_fetch(self, mock_stage_archive, debug):
+        archive = mock_stage_archive()
+        with spack.config.override('config:debug', debug):
+            with Stage(archive.url, name=self.stage_name) as stage:
+                stage.fetch()
+                check_setup(stage, self.stage_name, archive)
+                check_fetch(stage, self.stage_name)
+            check_destroy(stage, self.stage_name)
 
     def test_no_search_if_default_succeeds(
-            self, mock_archive, failing_search_fn
-    ):
-        with Stage(
-                mock_archive.url,
-                name=self.stage_name,
-                search_fn=failing_search_fn
-        ) as stage:
+            self, mock_stage_archive, failing_search_fn):
+        archive = mock_stage_archive()
+        stage = Stage(archive.url, name=self.stage_name,
+                      search_fn=failing_search_fn)
+        with stage:
             stage.fetch()
         check_destroy(stage, self.stage_name)
 
     def test_no_search_mirror_only(
-            self, failing_fetch_strategy, failing_search_fn
-    ):
-        with Stage(
-                failing_fetch_strategy,
-                name=self.stage_name,
-                search_fn=failing_search_fn
-        ) as stage:
+            self, failing_fetch_strategy, failing_search_fn):
+        stage = Stage(failing_fetch_strategy,
+                      name=self.stage_name,
+                      search_fn=failing_search_fn)
+        with stage:
             try:
                 stage.fetch(mirror_only=True)
             except spack.fetch_strategy.FetchError:
@@ -286,11 +535,10 @@ class TestStage(object):
         check_destroy(stage, self.stage_name)
 
     def test_search_if_default_fails(self, failing_fetch_strategy, search_fn):
-        with Stage(
-                failing_fetch_strategy,
-                name=self.stage_name,
-                search_fn=search_fn
-        ) as stage:
+        stage = Stage(failing_fetch_strategy,
+                      name=self.stage_name,
+                      search_fn=search_fn)
+        with stage:
             try:
                 stage.fetch(mirror_only=False)
             except spack.fetch_strategy.FetchError:
@@ -298,84 +546,156 @@ class TestStage(object):
         check_destroy(stage, self.stage_name)
         assert search_fn.performed_search
 
-    def test_expand_archive(self, mock_archive):
-        with Stage(mock_archive.url, name=self.stage_name) as stage:
+    def test_ensure_one_stage_entry(self, mock_stage_archive):
+        archive = mock_stage_archive()
+        with Stage(archive.url, name=self.stage_name) as stage:
             stage.fetch()
-            check_setup(stage, self.stage_name, mock_archive)
-            check_fetch(stage, self.stage_name)
-            stage.expand_archive()
-            check_expand_archive(stage, self.stage_name, mock_archive)
+            stage_path = get_stage_path(stage, self.stage_name)
+            spack.fetch_strategy._ensure_one_stage_entry(stage_path)
         check_destroy(stage, self.stage_name)
 
-    def test_expand_archive_with_chdir(self, mock_archive):
-        with Stage(mock_archive.url, name=self.stage_name) as stage:
+    @pytest.mark.parametrize("expected_file_list", [
+                             [],
+                             [_include_readme],
+                             [_include_extra, _include_readme],
+                             [_include_hidden, _include_readme]])
+    def test_expand_archive(self, expected_file_list, mock_stage_archive):
+        archive = mock_stage_archive(expected_file_list)
+        with Stage(archive.url, name=self.stage_name) as stage:
             stage.fetch()
-            check_setup(stage, self.stage_name, mock_archive)
+            check_setup(stage, self.stage_name, archive)
             check_fetch(stage, self.stage_name)
             stage.expand_archive()
-            stage.chdir_to_source()
-            check_expand_archive(stage, self.stage_name, mock_archive)
-            check_chdir_to_source(stage, self.stage_name)
+            check_expand_archive(stage, self.stage_name, expected_file_list)
         check_destroy(stage, self.stage_name)
 
-    def test_restage(self, mock_archive):
-        with Stage(mock_archive.url, name=self.stage_name) as stage:
+    def test_expand_archive_extra_expand(self, mock_stage_archive):
+        """Test expand with an extra expand after expand (i.e., no-op)."""
+        archive = mock_stage_archive()
+        with Stage(archive.url, name=self.stage_name) as stage:
+            stage.fetch()
+            check_setup(stage, self.stage_name, archive)
+            check_fetch(stage, self.stage_name)
+            stage.expand_archive()
+            stage.fetcher.expand()
+            check_expand_archive(stage, self.stage_name, [_include_readme])
+        check_destroy(stage, self.stage_name)
+
+    def test_restage(self, mock_stage_archive):
+        archive = mock_stage_archive()
+        with Stage(archive.url, name=self.stage_name) as stage:
             stage.fetch()
             stage.expand_archive()
-            stage.chdir_to_source()
-            check_expand_archive(stage, self.stage_name, mock_archive)
-            check_chdir_to_source(stage, self.stage_name)
 
-            # Try to make a file in the old archive dir
-            with open('foobar', 'w') as file:
-                file.write("this file is to be destroyed.")
+            with working_dir(stage.source_path):
+                check_expand_archive(stage, self.stage_name, [_include_readme])
+
+                # Try to make a file in the old archive dir
+                with open('foobar', 'w') as file:
+                    file.write("this file is to be destroyed.")
 
             assert 'foobar' in os.listdir(stage.source_path)
 
             # Make sure the file is not there after restage.
             stage.restage()
-            check_chdir(stage, self.stage_name)
             check_fetch(stage, self.stage_name)
-            stage.chdir_to_source()
-            check_chdir_to_source(stage, self.stage_name)
             assert 'foobar' not in os.listdir(stage.source_path)
         check_destroy(stage, self.stage_name)
 
-    def test_no_keep_without_exceptions(self, mock_archive):
-        with Stage(
-                mock_archive.url, name=self.stage_name, keep=False
-        ) as stage:
+    def test_no_keep_without_exceptions(self, mock_stage_archive):
+        archive = mock_stage_archive()
+        stage = Stage(archive.url, name=self.stage_name, keep=False)
+        with stage:
             pass
         check_destroy(stage, self.stage_name)
 
-    def test_keep_without_exceptions(self, mock_archive):
-        with Stage(
-                mock_archive.url, name=self.stage_name, keep=True
-        ) as stage:
+    @pytest.mark.disable_clean_stage_check
+    def test_keep_without_exceptions(self, mock_stage_archive):
+        archive = mock_stage_archive()
+        stage = Stage(archive.url, name=self.stage_name, keep=True)
+        with stage:
             pass
         path = get_stage_path(stage, self.stage_name)
         assert os.path.isdir(path)
 
-    def test_no_keep_with_exceptions(self, mock_archive):
+    @pytest.mark.disable_clean_stage_check
+    def test_no_keep_with_exceptions(self, mock_stage_archive):
         class ThisMustFailHere(Exception):
             pass
+
+        archive = mock_stage_archive()
+        stage = Stage(archive.url, name=self.stage_name, keep=False)
         try:
-            with Stage(
-                    mock_archive.url, name=self.stage_name, keep=False
-            ) as stage:
+            with stage:
                 raise ThisMustFailHere()
+
         except ThisMustFailHere:
             path = get_stage_path(stage, self.stage_name)
             assert os.path.isdir(path)
 
-    def test_keep_exceptions(self, mock_archive):
+    @pytest.mark.disable_clean_stage_check
+    def test_keep_exceptions(self, mock_stage_archive):
         class ThisMustFailHere(Exception):
             pass
+
+        archive = mock_stage_archive()
+        stage = Stage(archive.url, name=self.stage_name, keep=True)
         try:
-            with Stage(
-                    mock_archive.url, name=self.stage_name, keep=True
-            ) as stage:
+            with stage:
                 raise ThisMustFailHere()
+
         except ThisMustFailHere:
             path = get_stage_path(stage, self.stage_name)
             assert os.path.isdir(path)
+
+    def test_source_path_available(self, mock_stage_archive):
+        """Ensure source path available but does not exist on instantiation."""
+        archive = mock_stage_archive()
+        stage = Stage(archive.url, name=self.stage_name)
+
+        source_path = stage.source_path
+        assert source_path
+        assert source_path.endswith(spack.stage._source_path_subdir)
+        assert not os.path.exists(source_path)
+
+    def test_first_accessible_path_error(self):
+        """Test _first_accessible_path handling of an OSError."""
+        with tempfile.NamedTemporaryFile() as _file:
+            assert spack.stage._first_accessible_path([_file.name]) is None
+
+    def test_get_tmp_root_no_use(self, no_tmp_root_stage):
+        """Ensure not using tmp root results in no path."""
+        assert spack.stage.get_tmp_root() is None
+
+    def test_get_tmp_root_non_user_path(self, tmp_root_stage,
+                                        non_user_path_for_stage):
+        """Ensure build_stage of tmp root with non-user path includes user."""
+        path = spack.stage.get_tmp_root()
+        assert path.endswith(os.path.join(getpass.getuser(), 'spack-stage'))
+
+    def test_get_tmp_root_use(self, tmp_root_stage, tmp_path_for_stage):
+        """Ensure build_stage of tmp root provides has right ancestors."""
+        path = spack.stage.get_tmp_root()
+        shutil.rmtree(path)
+        assert path.rfind('test_get_tmp_root_use') > 0
+        assert path.endswith('spack-stage')
+
+    def test_get_tmp_root_stage_path(self, tmp_root_stage,
+                                     stage_path_for_stage):
+        """
+        Ensure build_stage of tmp root with stage_path means use local path.
+        """
+        assert spack.stage.get_tmp_root() is None
+        assert not spack.stage._use_tmp_stage
+
+    def test_stage_constructor_no_fetcher(self):
+        """Ensure Stage constructor with no URL or fetch strategy fails."""
+        with pytest.raises(ValueError):
+            with Stage(None):
+                pass
+
+    def test_stage_constructor_with_path(self, tmpdir):
+        """Ensure Stage constructor with a path uses it."""
+        testpath = str(tmpdir)
+        with Stage('file:///does-not-exist', path=testpath) as stage:
+            assert stage.path == testpath

@@ -1,4 +1,10 @@
-#!/usr/bin/env bash
+#!/bin/bash -e
+#
+# Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+# Spack Project Developers. See the top-level COPYRIGHT file for details.
+#
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
 #
 # Description:
 #     Runs source code style checks on Spack.
@@ -8,22 +14,11 @@
 # Usage:
 #     run-flake8-tests
 #
-# Notes:
-#     Requires flake8.
-#
+. "$(dirname $0)/setup.sh"
+check_dependencies flake8
 
-QA_DIR="$(dirname "$0")"
-SPACK_ROOT="$QA_DIR/../../.."
+# verify that the code style is correct
+spack flake8
 
-# Array of dependencies
-deps=(
-    flake8
-)
-
-# Check for dependencies
-"$QA_DIR/check_dependencies" "${deps[@]}" || exit 1
-
-# Add Spack to the PATH.
-export PATH="$SPACK_ROOT/bin:$PATH"
-
-exec spack flake8
+# verify that the license headers are present
+spack license verify

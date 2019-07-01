@@ -1,32 +1,13 @@
-##############################################################################
-# Copyright (c) 2013-2016, Lawrence Livermore National Security, LLC.
-# Produced at the Lawrence Livermore National Laboratory.
+# Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+# Spack Project Developers. See the top-level COPYRIGHT file for details.
 #
-# This file is part of Spack.
-# Created by Todd Gamblin, tgamblin@llnl.gov, All rights reserved.
-# LLNL-CODE-647188
-#
-# For details, see https://github.com/llnl/spack
-# Please also see the LICENSE file for our notice and the LGPL.
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License (as
-# published by the Free Software Foundation) version 2.1, February 1999.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the IMPLIED WARRANTY OF
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the terms and
-# conditions of the GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public
-# License along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
-##############################################################################
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
 from spack import *
 import sys
 
 
-class NetlibScalapack(Package):
+class NetlibScalapack(CMakePackage):
     """ScaLAPACK is a library of high-performance linear algebra routines for
     parallel distributed memory machines
     """
@@ -46,9 +27,9 @@ class NetlibScalapack(Package):
         description='Build the shared library version'
     )
     variant(
-        'fpic',
+        'pic',
         default=False,
-        description='Build with -fpic compiler option'
+        description='Build position independent code'
     )
 
     provides('scalapack')
@@ -58,14 +39,23 @@ class NetlibScalapack(Package):
     depends_on('blas')
     depends_on('cmake', when='@2.0.0:', type='build')
 
+    # See: https://github.com/Reference-ScaLAPACK/scalapack/issues/9
+    patch("cmake_fortran_mangle.patch", when='@2.0.2:')
+    # See: https://github.com/Reference-ScaLAPACK/scalapack/pull/10
+    patch("mpi2-compatibility.patch", when='@2.0.2:')
+
     @property
-    def scalapack_libs(self):
+    def libs(self):
+        # Note that the default will be to search
+        # for 'libnetlib-scalapack.<suffix>'
         shared = True if '+shared' in self.spec else False
         return find_libraries(
-            ['libscalapack'], root=self.prefix, shared=shared, recurse=True
+            'libscalapack', root=self.prefix, shared=shared, recursive=True
         )
 
-    def install(self, spec, prefix):
+    def cmake_args(self):
+        spec = self.spec
+
         options = [
             "-DBUILD_SHARED_LIBS:BOOL=%s" % ('ON' if '+shared' in spec else
                                              'OFF'),
@@ -74,8 +64,8 @@ class NetlibScalapack(Package):
         ]
 
         # Make sure we use Spack's Lapack:
-        blas = spec['blas'].blas_libs
-        lapack = spec['lapack'].lapack_libs
+        blas = spec['blas'].libs
+        lapack = spec['lapack'].libs
         options.extend([
             '-DLAPACK_FOUND=true',
             '-DLAPACK_INCLUDE_DIRS=%s' % spec['lapack'].prefix.include,
@@ -83,19 +73,16 @@ class NetlibScalapack(Package):
             '-DBLAS_LIBRARIES=%s' % (blas.joined(';'))
         ])
 
-        if '+fpic' in spec:
+        if '+pic' in spec:
             options.extend([
-                "-DCMAKE_C_FLAGS=-fPIC",
-                "-DCMAKE_Fortran_FLAGS=-fPIC"
+                "-DCMAKE_C_FLAGS=%s" % self.compiler.pic_flag,
+                "-DCMAKE_Fortran_FLAGS=%s" % self.compiler.pic_flag
             ])
 
-        options.extend(std_cmake_args)
+        return options
 
-        with working_dir('spack-build', create=True):
-            cmake('..', *options)
-            make()
-            make("install")
-
+    @run_after('install')
+    def fix_darwin_install(self):
         # The shared libraries are not installed correctly on Darwin:
-        if (sys.platform == 'darwin') and ('+shared' in spec):
-            fix_darwin_install_name(prefix.lib)
+        if (sys.platform == 'darwin') and ('+shared' in self.spec):
+            fix_darwin_install_name(self.spec.prefix.lib)

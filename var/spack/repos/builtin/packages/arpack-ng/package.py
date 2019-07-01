@@ -1,33 +1,14 @@
-##############################################################################
-# Copyright (c) 2013-2016, Lawrence Livermore National Security, LLC.
-# Produced at the Lawrence Livermore National Laboratory.
+# Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+# Spack Project Developers. See the top-level COPYRIGHT file for details.
 #
-# This file is part of Spack.
-# Created by Todd Gamblin, tgamblin@llnl.gov, All rights reserved.
-# LLNL-CODE-647188
-#
-# For details, see https://github.com/llnl/spack
-# Please also see the LICENSE file for our notice and the LGPL.
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License (as
-# published by the Free Software Foundation) version 2.1, February 1999.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the IMPLIED WARRANTY OF
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the terms and
-# conditions of the GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public
-# License along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
-##############################################################################
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
 from spack import *
 
 
 class ArpackNg(Package):
-    """ARPACK-NG is a collection of Fortran77 subroutines designed to solve large
-    scale eigenvalue problems.
+    """ARPACK-NG is a collection of Fortran77 subroutines designed to solve
+    large scale eigenvalue problems.
 
     Important Features:
 
@@ -54,13 +35,22 @@ class ArpackNg(Package):
     """
 
     homepage = 'https://github.com/opencollab/arpack-ng'
-    url = 'https://github.com/opencollab/arpack-ng/archive/3.3.0.tar.gz'
+    url      = 'https://github.com/opencollab/arpack-ng/archive/3.3.0.tar.gz'
+    git      = 'https://github.com/opencollab/arpack-ng.git'
 
+    version('develop', branch='master')
+    version('3.7.0', sha256='972e3fc3cd0b9d6b5a737c9bf6fd07515c0d6549319d4ffb06970e64fa3cc2d6')
+    version('3.6.3', sha256='64f3551e5a2f8497399d82af3076b6a33bf1bc95fc46bbcabe66442db366f453')
+    version('3.6.2', sha256='673c8202de996fd3127350725eb1818e534db4e79de56d5dcee8c00768db599a')
+    version('3.6.0', 'f2607c1d5f80e922d55751fbed86a8ec')
+    version('3.5.0', '9762c9ae6d739a9e040f8201b1578874')
     version('3.4.0', 'ae9ca13f2143a7ea280cb0e2fd4bfae4')
     version('3.3.0', 'ed3648a23f0a868a43ef44c97a21bad5')
 
     variant('shared', default=True,
             description='Enables the build of shared libraries')
+    variant('static', default=True,
+            description='Enables the build of static libraries')
     variant('mpi', default=True, description='Activates MPI support')
 
     # The function pdlamch10 does not set the return variable.
@@ -80,6 +70,19 @@ class ArpackNg(Package):
 
     depends_on('mpi', when='+mpi')
 
+    @property
+    def libs(self):
+        # TODO: do we need spec['arpack-ng:parallel'].libs ?
+        # query_parameters = self.spec.last_query.extra_parameters
+        libraries = ['libarpack']
+
+        if '+mpi' in self.spec:
+            libraries = ['libparpack'] + libraries
+
+        return find_libraries(
+            libraries, root=self.prefix, shared=True, recursive=True
+        )
+
     @when('@3.4.0:')
     def install(self, spec, prefix):
 
@@ -88,8 +91,8 @@ class ArpackNg(Package):
         options.append('-DCMAKE_INSTALL_NAME_DIR:PATH=%s/lib' % prefix)
 
         # Make sure we use Spack's blas/lapack:
-        lapack_libs = spec['lapack'].lapack_libs.joined(';')
-        blas_libs = spec['blas'].blas_libs.joined(';')
+        lapack_libs = spec['lapack'].libs.joined(';')
+        blas_libs = spec['blas'].libs.joined(';')
 
         options.extend([
             '-DLAPACK_FOUND=true',
@@ -107,6 +110,8 @@ class ArpackNg(Package):
 
         if '+shared' in spec:
             options.append('-DBUILD_SHARED_LIBS=ON')
+        if '+static' in spec:
+            options.append('-DBUILD_STATIC_LIBS=ON')
 
         cmake('.', *options)
         make()
@@ -114,7 +119,7 @@ class ArpackNg(Package):
             make('test')
         make('install')
 
-    @when('@3.3.0')
+    @when('@3.3.0')  # noqa
     def install(self, spec, prefix):
         # Apparently autotools are not bootstrapped
         which('libtoolize')()
@@ -129,8 +134,8 @@ class ArpackNg(Package):
             ])
 
         options.extend([
-            '--with-blas={0}'.format(spec['blas'].blas_libs.ld_flags),
-            '--with-lapack={0}'.format(spec['lapack'].lapack_libs.ld_flags)
+            '--with-blas={0}'.format(spec['blas'].libs.ld_flags),
+            '--with-lapack={0}'.format(spec['lapack'].libs.ld_flags)
         ])
         if '+shared' not in spec:
             options.append('--enable-shared=no')

@@ -1,27 +1,7 @@
-##############################################################################
-# Copyright (c) 2013-2016, Lawrence Livermore National Security, LLC.
-# Produced at the Lawrence Livermore National Laboratory.
+# Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+# Spack Project Developers. See the top-level COPYRIGHT file for details.
 #
-# This file is part of Spack.
-# Created by Todd Gamblin, tgamblin@llnl.gov, All rights reserved.
-# LLNL-CODE-647188
-#
-# For details, see https://github.com/llnl/spack
-# Please also see the LICENSE file for our notice and the LGPL.
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License (as
-# published by the Free Software Foundation) version 2.1, February 1999.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the IMPLIED WARRANTY OF
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the terms and
-# conditions of the GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public
-# License along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
-##############################################################################
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
 import os
 import shutil
@@ -35,13 +15,13 @@ def _install_shlib(name, src, dst):
     if sys.platform == "darwin":
         shlib0 = name + ".0.dylib"
         shlib = name + ".dylib"
-        shutil.copyfile(join_path(src, shlib0), join_path(dst, shlib0))
+        install(join_path(src, shlib0), join_path(dst, shlib0))
         os.symlink(shlib0, join_path(dst, shlib))
     else:
         shlib000 = name + ".so.0.0.0"
         shlib0 = name + ".so.0"
         shlib = name + ".dylib"
-        shutil.copyfile(join_path(src, shlib000), join_path(dst, shlib000))
+        install(join_path(src, shlib000), join_path(dst, shlib000))
         os.symlink(shlib000, join_path(dst, shlib0))
         os.symlink(shlib0, join_path(dst, shlib))
 
@@ -49,10 +29,9 @@ def _install_shlib(name, src, dst):
 class Hdf5Blosc(Package):
     """Blosc filter for HDF5"""
     homepage = "https://github.com/Blosc/hdf5-blosc"
-    url      = "https://github.com/Blosc/hdf5-blosc"
+    git      = "https://github.com/Blosc/hdf5-blosc.git"
 
-    version('master', git='https://github.com/Blosc/hdf5-blosc',
-            branch='master')
+    version('master', branch='master')
 
     depends_on("c-blosc")
     depends_on("hdf5")
@@ -69,7 +48,7 @@ class Hdf5Blosc(Package):
         # if sys.platform == "darwin":
         #     fix_darwin_install_name(prefix.lib)
 
-        libtool = Executable(join_path(spec["libtool"].prefix.bin, "libtool"))
+        libtool = spec["libtool"].command
 
         # TODO: these vars are not used.
         # if "+mpi" in spec["hdf5"]:
@@ -111,11 +90,12 @@ class Hdf5Blosc(Package):
                         "-L%s" % spec["hdf5"].prefix.lib, "-lhdf5")
                 _install_shlib("libblosc_plugin", ".libs", prefix.lib)
 
-        self.check_install(spec)
+        if self.run_tests:
+            self.check_install(spec)
 
     def check_install(self, spec):
         "Build and run a small program to test the installed HDF5 Blosc plugin"
-        print "Checking HDF5-Blosc plugin..."
+        print("Checking HDF5-Blosc plugin...")
         checkdir = "spack-check"
         with working_dir(checkdir, create=True):
             source = r"""\
@@ -174,30 +154,30 @@ Done.
             with open("check.c", "w") as f:
                 f.write(source)
             if "+mpi" in spec["hdf5"]:
-                cc = which("mpicc")
+                cc = Executable(spec["mpi"].mpicc)
             else:
-                cc = which("cc")
+                cc = Executable(self.compiler.cc)
             # TODO: Automate these path and library settings
             cc("-c", "-I%s" % spec["hdf5"].prefix.include, "check.c")
             cc("-o", "check", "check.o",
                "-L%s" % spec["hdf5"].prefix.lib, "-lhdf5")
             try:
                 check = Executable("./check")
-                output = check(return_output=True)
-            except:
+                output = check(output=str)
+            except ProcessError:
                 output = ""
             success = output == expected
             if not success:
-                print "Produced output does not match expected output."
-                print "Expected output:"
-                print "-" * 80
-                print expected
-                print "-" * 80
-                print "Produced output:"
-                print "-" * 80
-                print output
-                print "-" * 80
-                print "Environment:"
+                print("Produced output does not match expected output.")
+                print("Expected output:")
+                print("-" * 80)
+                print(expected)
+                print("-" * 80)
+                print("Produced output:")
+                print("-" * 80)
+                print(output)
+                print("-" * 80)
+                print("Environment:")
                 env = which("env")
                 env()
                 raise RuntimeError("HDF5 Blosc plugin check failed")

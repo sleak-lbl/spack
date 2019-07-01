@@ -1,27 +1,8 @@
-##############################################################################
-# Copyright (c) 2013-2016, Lawrence Livermore National Security, LLC.
-# Produced at the Lawrence Livermore National Laboratory.
+# Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+# Spack Project Developers. See the top-level COPYRIGHT file for details.
 #
-# This file is part of Spack.
-# Created by Todd Gamblin, tgamblin@llnl.gov, All rights reserved.
-# LLNL-CODE-647188
-#
-# For details, see https://github.com/llnl/spack
-# Please also see the LICENSE file for our notice and the LGPL.
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License (as
-# published by the Free Software Foundation) version 2.1, February 1999.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the IMPLIED WARRANTY OF
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the terms and
-# conditions of the GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public
-# License along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
-##############################################################################
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
 from spack import *
 import glob
 import os
@@ -38,8 +19,8 @@ class Superlu(Package):
     version('5.2.1', '3a1a9bff20cb06b7d97c46d337504447')
     version('4.3', 'b72c6309f25e9660133007b82621ba7c')
 
-    variant('fpic',    default=False,
-            description='Build with position independent code') 
+    variant('pic',    default=True,
+            description='Build with position independent code')
 
     depends_on('cmake', when='@5.2.1:', type='build')
     depends_on('blas')
@@ -48,10 +29,10 @@ class Superlu(Package):
     def install(self, spec, prefix):
         cmake_args = [
             '-Denable_blaslib=OFF',
-            '-DBLAS_blas_LIBRARY={0}'.format(spec['blas'].blas_libs.joined())
+            '-DBLAS_blas_LIBRARY={0}'.format(spec['blas'].libs.joined())
         ]
 
-        if '+fpic' in spec:
+        if '+pic' in spec:
             cmake_args.extend([
                 '-DCMAKE_POSITION_INDEPENDENT_CODE=ON'
             ])
@@ -76,7 +57,7 @@ class Superlu(Package):
             'SUPERLULIB = $(SuperLUroot)/lib/libsuperlu_{0}.a' \
             .format(self.spec.version),
             'BLASDEF    = -DUSE_VENDOR_BLAS',
-            'BLASLIB    = {0}'.format(spec['blas'].blas_libs.ld_flags),
+            'BLASLIB    = {0}'.format(spec['blas'].libs.ld_flags),
             # or BLASLIB      = -L/usr/lib64 -lblas
             'TMGLIB     = libtmglib.a',
             'LIBS       = $(SUPERLULIB) $(BLASLIB)',
@@ -89,7 +70,7 @@ class Superlu(Package):
             'CDEFS      = -DAdd_'
         ])
 
-        if '+fpic' in spec:
+        if '+pic' in spec:
             config.extend([
                 # Use these lines instead when pic_flag capability arrives
                 'CFLAGS     = -O3 {0}'.format(self.compiler.pic_flag),
@@ -117,4 +98,4 @@ class Superlu(Package):
         headers = glob.glob(join_path('SRC', '*.h'))
         mkdir(prefix.include)
         for h in headers:
-            install(h, prefix.include) 
+            install(h, prefix.include)

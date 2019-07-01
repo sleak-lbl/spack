@@ -1,27 +1,8 @@
-##############################################################################
-# Copyright (c) 2013-2016, Lawrence Livermore National Security, LLC.
-# Produced at the Lawrence Livermore National Laboratory.
+# Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+# Spack Project Developers. See the top-level COPYRIGHT file for details.
 #
-# This file is part of Spack.
-# Created by Todd Gamblin, tgamblin@llnl.gov, All rights reserved.
-# LLNL-CODE-647188
-#
-# For details, see https://github.com/llnl/spack
-# Please also see the LICENSE file for our notice and the LGPL.
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License (as
-# published by the Free Software Foundation) version 2.1, February 1999.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the IMPLIED WARRANTY OF
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the terms and
-# conditions of the GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public
-# License along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
-##############################################################################
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
 """
 This file contains code for creating spack mirror directories.  A
 mirror is an organized hierarchy containing specially named archive
@@ -33,18 +14,18 @@ to download packages directly from a mirror (e.g., on an intranet).
 import sys
 import os
 import llnl.util.tty as tty
-from llnl.util.filesystem import *
+from llnl.util.filesystem import mkdirp
 
-import spack
+import spack.config
 import spack.error
 import spack.url as url
 import spack.fetch_strategy as fs
 from spack.spec import Spec
-from spack.version import *
+from spack.version import VersionList
 from spack.util.compression import allowed_archive
 
 
-def mirror_archive_filename(spec, fetcher, resourceId=None):
+def mirror_archive_filename(spec, fetcher, resource_id=None):
     """Get the name of the spec's archive in the mirror."""
     if not spec.version.concrete:
         raise ValueError("mirror.path requires spec with concrete version.")
@@ -53,13 +34,33 @@ def mirror_archive_filename(spec, fetcher, resourceId=None):
         if fetcher.expand_archive:
             # If we fetch with a URLFetchStrategy, use URL's archive type
             ext = url.determine_url_file_extension(fetcher.url)
-            ext = ext or spec.package.versions[spec.package.version].get(
-                'extension', None)
-            ext = ext.lstrip('.')
+
+            # If the filename does not end with a normal suffix,
+            # see if the package explicitly declares the extension
             if not ext:
-                raise MirrorError(
-                    "%s version does not specify an extension" % spec.name +
-                    " and could not parse extension from %s" % fetcher.url)
+                ext = spec.package.versions[spec.package.version].get(
+                    'extension', None)
+
+            if ext:
+                # Remove any leading dots
+                ext = ext.lstrip('.')
+
+            if not ext:
+                msg = """\
+Unable to parse extension from {0}.
+
+If this URL is for a tarball but does not include the file extension
+in the name, you can explicitly declare it with the following syntax:
+
+    version('1.2.3', 'hash', extension='tar.gz')
+
+If this URL is for a download like a .jar or .whl that does not need
+to be expanded, or an uncompressed installation script, you can tell
+Spack not to expand it with the following syntax:
+
+    version('1.2.3', 'hash', expand=False)
+"""
+                raise MirrorError(msg.format(fetcher.url))
         else:
             # If the archive shouldn't be expanded, don't check extension.
             ext = None
@@ -67,22 +68,26 @@ def mirror_archive_filename(spec, fetcher, resourceId=None):
         # Otherwise we'll make a .tar.gz ourselves
         ext = 'tar.gz'
 
-    if resourceId:
-        filename = "%s-%s" % (resourceId, spec.version) + ".%s" % ext
+    if resource_id:
+        filename = "%s-%s" % (resource_id, spec.version) + ".%s" % ext
     else:
         filename = "%s-%s" % (spec.package.name, spec.version) + ".%s" % ext
 
     return filename
 
 
-def mirror_archive_path(spec, fetcher, resourceId=None):
+def mirror_archive_path(spec, fetcher, resource_id=None):
     """Get the relative path to the spec's archive within a mirror."""
-    return join_path(
-        spec.name, mirror_archive_filename(spec, fetcher, resourceId))
+    return os.path.join(
+        spec.name, mirror_archive_filename(spec, fetcher, resource_id))
 
 
 def get_matching_versions(specs, **kwargs):
-    """Get a spec for EACH known version matching any spec in the list."""
+    """Get a spec for EACH known version matching any spec in the list.
+    For concrete specs, this retrieves the concrete version and, if more
+    than one version per spec is requested, retrieves the latest versions
+    of the package.
+    """
     matching = []
     for spec in specs:
         pkg = spec.package
@@ -92,15 +97,22 @@ def get_matching_versions(specs, **kwargs):
             tty.msg("No safe (checksummed) versions for package %s" % pkg.name)
             continue
 
-        num_versions = kwargs.get('num_versions', 0)
+        pkg_versions = kwargs.get('num_versions', 1)
+
+        version_order = list(reversed(sorted(pkg.versions)))
         matching_spec = []
-        for i, v in enumerate(reversed(sorted(pkg.versions))):
+        if spec.concrete:
+            matching_spec.append(spec)
+            pkg_versions -= 1
+            version_order.remove(spec.version)
+
+        for v in version_order:
             # Generate no more than num_versions versions for each spec.
-            if num_versions and i >= num_versions:
+            if pkg_versions < 1:
                 break
 
             # Generate only versions that satisfy the spec.
-            if v.satisfies(spec.versions):
+            if spec.concrete or v.satisfies(spec.versions):
                 s = Spec(pkg.name)
                 s.versions = VersionList([v])
                 s.variants = spec.variants.copy()
@@ -108,6 +120,7 @@ def get_matching_versions(specs, **kwargs):
                 # concretization phase
                 s.variants.spec = s
                 matching_spec.append(s)
+                pkg_versions -= 1
 
         if not matching_spec:
             tty.warn("No known version matches spec: %s" % spec)
@@ -117,13 +130,10 @@ def get_matching_versions(specs, **kwargs):
 
 
 def suggest_archive_basename(resource):
-    """
-    Return a tentative basename for an archive.
+    """Return a tentative basename for an archive.
 
-    Raises an exception if the name is not an allowed archive type.
-
-    :param fetcher:
-    :return:
+    Raises:
+        RuntimeError: if the name is not an allowed archive type.
     """
     basename = os.path.basename(resource.fetcher.url)
     if not allowed_archive(basename):
@@ -141,9 +151,8 @@ def create(path, specs, **kwargs):
             to the mirror.
 
     Keyword args:
-        no_checksum: If True, do not checkpoint when fetching (default False)
         num_versions: Max number of versions to fetch per spec, \
-            if spec is ambiguous (default is 0 for all of them)
+            (default is 1 each spec)
 
     Return Value:
         Returns a tuple of lists: (present, mirrored, error)
@@ -165,7 +174,7 @@ def create(path, specs, **kwargs):
 
     # Get concrete specs for each matching version of these specs.
     version_specs = get_matching_versions(
-        specs, num_versions=kwargs.get('num_versions', 0))
+        specs, num_versions=kwargs.get('num_versions', 1))
     for s in version_specs:
         s.concretize()
 
@@ -185,64 +194,37 @@ def create(path, specs, **kwargs):
         'error': []
     }
 
-    # Iterate through packages and download all safe tarballs for each
-    for spec in version_specs:
-        add_single_spec(spec, mirror_root, categories, **kwargs)
+    mirror_cache = spack.caches.MirrorCache(mirror_root)
+    try:
+        spack.caches.mirror_cache = mirror_cache
+        # Iterate through packages and download all safe tarballs for each
+        for spec in version_specs:
+            add_single_spec(spec, mirror_root, categories, **kwargs)
+    finally:
+        spack.caches.mirror_cache = None
+
+    categories['mirrored'] = list(mirror_cache.new_resources)
+    categories['present'] = list(mirror_cache.existing_resources)
 
     return categories['present'], categories['mirrored'], categories['error']
 
 
 def add_single_spec(spec, mirror_root, categories, **kwargs):
-    tty.msg("Adding package {pkg} to mirror".format(pkg=spec.format("$_$@")))
-    spec_exists_in_mirror = True
+    tty.msg("Adding package {pkg} to mirror".format(
+        pkg=spec.format("{name}{@version}")
+    ))
     try:
-        with spec.package.stage:
-            # fetcher = stage.fetcher
-            # fetcher.fetch()
-            # ...
-            # fetcher.archive(archive_path)
-            for ii, stage in enumerate(spec.package.stage):
-                fetcher = stage.fetcher
-                if ii == 0:
-                    # create a subdirectory for the current package@version
-                    archive_path = os.path.abspath(join_path(
-                        mirror_root, mirror_archive_path(spec, fetcher)))
-                    name = spec.format("$_$@")
-                else:
-                    resource = stage.resource
-                    archive_path = os.path.abspath(join_path(
-                        mirror_root,
-                        mirror_archive_path(spec, fetcher, resource.name)))
-                    name = "{resource} ({pkg}).".format(
-                        resource=resource.name, pkg=spec.format("$_$@"))
-                subdir = os.path.dirname(archive_path)
-                mkdirp(subdir)
-
-                if os.path.exists(archive_path):
-                    tty.msg("{name} : already added".format(name=name))
-                else:
-                    spec_exists_in_mirror = False
-                    fetcher.fetch()
-                    if not kwargs.get('no_checksum', False):
-                        fetcher.check()
-                        tty.msg("{name} : checksum passed".format(name=name))
-
-                    # Fetchers have to know how to archive their files.  Use
-                    # that to move/copy/create an archive in the mirror.
-                    fetcher.archive(archive_path)
-                    tty.msg("{name} : added".format(name=name))
-
-        if spec_exists_in_mirror:
-            categories['present'].append(spec)
-        else:
-            categories['mirrored'].append(spec)
+        spec.package.do_fetch()
+        spec.package.do_clean()
 
     except Exception as e:
-        if spack.debug:
+        tty.debug(e)
+        if spack.config.get('config:debug'):
             sys.excepthook(*sys.exc_info())
         else:
-            tty.warn("Error while fetching %s"
-                     % spec.format('$_$@'), e.message)
+            tty.warn(
+                "Error while fetching %s" % spec.cformat('{name}{@version}'),
+                e.message)
         categories['error'].append(spec)
 
 

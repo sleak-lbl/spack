@@ -1,6 +1,7 @@
 /db
 /var/spack/stage
 /var/spack/cache
+/var/spack/environments
 /var/spack/repos/*/index.yaml
 /var/spack/repos/*/lock
 *.pyc
@@ -8,8 +9,9 @@
 *~
 .DS_Store
 .idea
-/etc/spack/licenses
-/etc/spack/*.yaml
+# Ignore everything in /etc/spack except /etc/spack/defaults
+/etc/spack/*
+!/etc/spack/defaults
 /etc/spackconfig
 /share/spack/dotkit
 /share/spack/modules
@@ -20,5 +22,7 @@
 .coverage
 #*
 .#*
-/.cache
+lib/spack/spack/test/.cache
 /bin/spackc
+*.in.log
+*.out.log

@@ -1,31 +1,12 @@
-##############################################################################
-# Copyright (c) 2013-2016, Lawrence Livermore National Security, LLC.
-# Produced at the Lawrence Livermore National Laboratory.
+# Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+# Spack Project Developers. See the top-level COPYRIGHT file for details.
 #
-# This file is part of Spack.
-# Created by Todd Gamblin, tgamblin@llnl.gov, All rights reserved.
-# LLNL-CODE-647188
-#
-# For details, see https://github.com/llnl/spack
-# Please also see the LICENSE file for our notice and the LGPL.
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License (as
-# published by the Free Software Foundation) version 2.1, February 1999.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the IMPLIED WARRANTY OF
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the terms and
-# conditions of the GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public
-# License along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
-##############################################################################
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
 from spack import *
 
 
-class Samrai(Package):
+class Samrai(AutotoolsPackage):
     """SAMRAI (Structured Adaptive Mesh Refinement Application Infrastructure)
        is an object-oriented C++ software library enables exploration of
        numerical, algorithmic, parallel computing, and software issues
@@ -33,10 +14,17 @@ class Samrai(Package):
        (SAMR) technology in large-scale parallel application development.
 
     """
-    homepage = "https://computation.llnl.gov/project/SAMRAI/"
-    url      = "https://computation.llnl.gov/project/SAMRAI/download/SAMRAI-v3.9.1.tar.gz"
+    homepage = "https://computation.llnl.gov/projects/samrai"
+    url      = "https://computation.llnl.gov/projects/samrai/download/SAMRAI-v3.11.2.tar.gz"
     list_url = homepage
 
+    version('3.12.0',     '07364f6e209284e45ac0e9caf1d610f6')
+    version('3.11.5',     '4359a03145c03501b230777f92b62104')
+    version('3.11.4',     '473d6796772f5926b1c0d1cf8f3f8c99')
+    # Version 3.11.3 permissions don't allow downloading
+    version('3.11.2',     'd5f59f8efd755b23b797e46349428206')
+    version('3.11.1',     '19a2398a7448ec0f0f0c5e8fc6f80478')
+    version('3.10.0',     'ff5f5b8b4a35b52a1b7e37a74166c65a')
     version('3.9.1',      '232d04d0c995f5abf20d94350befd0b2')
     version('3.8.0',      'c18fcffa706346bfa5828b36787ce5fe')
     version('3.7.3',      '12d574eacadf8c9a70f1bb4cd1a69df6')
@@ -49,29 +37,64 @@ class Samrai(Package):
     version('3.3.2-beta', 'e598a085dab979498fcb6c110c4dd26c')
     version('2.4.4',      '04fb048ed0efe7c531ac10c81cc5f6ac')
 
-    depends_on("mpi")
-    depends_on("zlib")
-    depends_on("hdf5+mpi")
-    depends_on("boost")
+    # Debug mode reduces optimization, includes assertions, debug symbols
+    # and more print statements
+    variant('debug', default=False,
+            description='Compile with reduced optimization and debugging on')
+    variant('silo', default=False,
+            description='Compile with support for silo')
 
-    # don't build tools with gcc
-    patch('no-tool-build.patch', when='%gcc')
+    depends_on('mpi')
+    depends_on('zlib')
+    depends_on('hdf5+mpi')
+    depends_on('m4', type='build')
+    depends_on('boost@:1.64.0', when='@3.0.0:3.11.99', type='build')
+    depends_on('silo+mpi', when='+silo')
 
-    # TODO: currently hard-coded to use openmpi - be careful!
-    def install(self, spec, prefix):
-        configure(
-            "--prefix=%s" % prefix,
-            "--with-CXX=%s" % spec['mpi'].prefix.bin + "/mpic++",
-            "--with-CC=%s" % spec['mpi'].prefix.bin + "/mpicc",
-            "--with-hdf5=%s" % spec['hdf5'].prefix,
-            "--with-boost=%s" % spec['boost'].prefix,
-            "--with-zlib=%s" % spec['zlib'].prefix,
-            "--without-blas",
-            "--without-lapack",
-            "--with-hypre=no",
-            "--with-petsc=no",
-            "--enable-opt",
-            "--disable-debug")
+    # don't build SAMRAI 3+ with tools with gcc
+    patch('no-tool-build.patch', when='@3.0.0:%gcc')
 
-        make()
-        make("install")
+    # 2.4.4 needs a lot of patches to fix ADL and performance problems
+    patch('https://github.com/IBAMR/IBAMR/releases/download/v0.3.0/ibamr-samrai-fixes.patch',
+          sha256='1d088b6cca41377747fa0ae8970440c20cb68988bbc34f9032d5a4e6aceede47',
+          when='@2.4.4')
+
+    def configure_args(self):
+        options = []
+
+        options.extend([
+            '--with-CXX=%s' % self.spec['mpi'].mpicxx,
+            '--with-CC=%s' % self.spec['mpi'].mpicc,
+            '--with-F77=%s' % self.spec['mpi'].mpifc,
+            '--with-M4=%s' % self.spec['m4'].prefix,
+            '--with-hdf5=%s' % self.spec['hdf5'].prefix,
+            '--with-zlib=%s' % self.spec['zlib'].prefix,
+            '--without-blas',
+            '--without-lapack',
+            '--with-hypre=no',
+            '--with-petsc=no'])
+
+        # SAMRAI 2 used templates; enable implicit instantiation
+        if self.spec.satisfies('@:3'):
+            options.append('--enable-implicit-template-instantiation')
+
+        if '+debug' in self.spec:
+            options.extend([
+                '--disable-opt',
+                '--enable-debug'])
+        else:
+            options.extend([
+                '--enable-opt',
+                '--disable-debug'])
+
+        if '+silo' in self.spec:
+            options.append('--with-silo=%s' % self.spec['silo'].prefix)
+
+        if self.spec.satisfies('@3.0:3.11.99'):
+            options.append('--with-boost=%s' % self.spec['boost'].prefix)
+
+        return options
+
+    def setup_dependent_environment(self, spack_env, run_env, dependent_spec):
+        if self.spec.satisfies('@3.12:'):
+            spack_env.append_flags('CXXFLAGS', self.compiler.cxx11_flag)

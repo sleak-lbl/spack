@@ -1,28 +1,8 @@
-##############################################################################
-# Copyright (c) 2013-2016, Lawrence Livermore National Security, LLC.
-# Produced at the Lawrence Livermore National Laboratory.
+# Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+# Spack Project Developers. See the top-level COPYRIGHT file for details.
 #
-# This file is part of Spack.
-# Created by Todd Gamblin, tgamblin@llnl.gov, All rights reserved.
-# LLNL-CODE-647188
-#
-# For details, see https://github.com/llnl/spack
-# Please also see the LICENSE file for our notice and the LGPL.
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License (as
-# published by the Free Software Foundation) version 2.1, February 1999.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the IMPLIED WARRANTY OF
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the terms and
-# conditions of the GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public
-# License along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
-##############################################################################
-import os
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
 from spack import *
 
 
@@ -31,10 +11,11 @@ class Scotch(Package):
        partitioning, graph clustering, and sparse matrix ordering."""
 
     homepage = "http://www.labri.fr/perso/pelegrin/scotch/"
-    url = "http://gforge.inria.fr/frs/download.php/latestfile/298/scotch_6.0.3.tar.gz"
-    base_url = "http://gforge.inria.fr/frs/download.php/latestfile/298"
+    url      = "http://gforge.inria.fr/frs/download.php/latestfile/298/scotch_6.0.4.tar.gz"
     list_url = "http://gforge.inria.fr/frs/?group_id=248"
 
+    version('6.0.6', 'ef676a3118b5590c416176e402fac248')
+    version('6.0.5a', '8430dff7175a1dfd5a3258e75260cf71')
     version('6.0.4', 'd58b825eb95e1db77efe8c6ff42d329f')
     version('6.0.3', '10b0cc0f184de2de99859eafaca83cfc')
     version('6.0.0', 'c50d6187462ba801f9a82133ee666e8e')
@@ -50,11 +31,25 @@ class Scotch(Package):
             description='Build a shared version of the library')
     variant('metis', default=True,
             description='Build metis and parmetis wrapper libraries')
+    variant('int64', default=False,
+            description='Use int64_t for SCOTCH_Num typedef')
 
-    depends_on('flex@:2.6.1', type='build')
+    # Does not build with flex 2.6.[23]
+    depends_on('flex@:2.6.1,2.6.4:', type='build')
     depends_on('bison', type='build')
     depends_on('mpi', when='+mpi')
     depends_on('zlib', when='+compression')
+
+    # Version-specific patches
+    patch('nonthreaded-6.0.4.patch', when='@6.0.4')
+    patch('esmumps-ldflags-6.0.4.patch', when='@6.0.4')
+    patch('metis-headers-6.0.4.patch', when='@6.0.4')
+
+    patch('libscotchmetis-return-6.0.5a.patch', when='@6.0.5a')
+
+    # NOTE: In cross-compiling environment parallel build
+    # produces weird linker errors.
+    parallel = False
 
     # NOTE: Versions of Scotch up to version 6.0.0 don't include support for
     # building with 'esmumps' in their default packages.  In order to enable
@@ -62,12 +57,32 @@ class Scotch(Package):
     # from the Scotch hosting site.  These alternative archives include a
     # superset of the behavior in their default counterparts, so we choose to
     # always grab these versions for older Scotch versions for simplicity.
-    def url_for_version(self, version):
-        return super(Scotch, self).url_for_version(version)
-
     @when('@:6.0.0')
     def url_for_version(self, version):
-        return '%s/scotch_%s_esmumps.tar.gz' % (Scotch.base_url, version)
+        url = "http://gforge.inria.fr/frs/download.php/latestfile/298/scotch_{0}_esmumps.tar.gz"
+        return url.format(version)
+
+    @property
+    def libs(self):
+
+        shared = '+shared' in self.spec
+        libraries = ['libscotch', 'libscotcherr']
+        zlibs     = []
+
+        if '+mpi' in self.spec:
+            libraries = ['libptscotch', 'libptscotcherr'] + libraries
+            if '+esmumps' in self.spec:
+                libraries = ['libptesmumps'] + libraries
+        elif '~mpi+esmumps' in self.spec:
+            libraries = ['libesmumps'] + libraries
+
+        scotchlibs = find_libraries(
+            libraries, root=self.prefix, recursive=True, shared=shared
+        )
+        if '+compression' in self.spec:
+            zlibs = self.spec['zlib'].libs
+
+        return scotchlibs + zlibs
 
     def patch(self):
         self.configure()
@@ -83,8 +98,12 @@ class Scotch(Package):
             '-DCOMMON_RANDOM_FIXED_SEED',
             '-DSCOTCH_DETERMINISTIC',
             '-DSCOTCH_RENAME',
-            '-DIDXSIZE64'
+            '-DIDXSIZE64',  # SCOTCH_Idx typedef: indices for addressing
         ]
+
+        # SCOTCH_Num typedef: size of integers in arguments
+        if '+int64' in self.spec:
+            cflags.append('-DINTSIZE64')
 
         if self.spec.satisfies('platform=darwin'):
             cflags.extend([
@@ -96,7 +115,9 @@ class Scotch(Package):
             if self.spec.satisfies('platform=darwin'):
                 makefile_inc.extend([
                     'LIB       = .dylib',
-                    'CLIBFLAGS = -dynamiclib -fPIC',
+                    'CLIBFLAGS = -dynamiclib {0}'.format(
+                        self.compiler.pic_flag
+                    ),
                     'RANLIB    = echo',
                     'AR        = $(CC)',
                     'ARFLAGS   = -dynamiclib $(LDFLAGS) -Wl,-install_name -Wl,%s/$(notdir $@) -undefined dynamic_lookup -o ' % prefix.lib  # noqa
@@ -104,12 +125,12 @@ class Scotch(Package):
             else:
                 makefile_inc.extend([
                     'LIB       = .so',
-                    'CLIBFLAGS = -shared -fPIC',
+                    'CLIBFLAGS = -shared {0}'.format(self.compiler.pic_flag),
                     'RANLIB    = echo',
                     'AR        = $(CC)',
                     'ARFLAGS   = -shared $(LDFLAGS) -o'
                 ])
-            cflags.append('-fPIC')
+            cflags.append(self.compiler.pic_flag)
         else:
             makefile_inc.extend([
                 'LIB       = .a',
@@ -124,7 +145,7 @@ class Scotch(Package):
         if self.compiler.name == 'gcc':
             cflags.append('-Drestrict=__restrict')
         elif self.compiler.name == 'intel':
-            cflags.append('-restrict')
+            cflags.append('-Drestrict=')
 
         mpicc_path = self.spec['mpi'].mpicc if '+mpi' in self.spec else 'mpicc'
         makefile_inc.append('CCS       = $(CC)')
@@ -137,12 +158,17 @@ class Scotch(Package):
 
         if '+compression' in self.spec:
             cflags.append('-DCOMMON_FILE_COMPRESS_GZ')
-            ldflags.append('-L%s -lz' % (self.spec['zlib'].prefix.lib))
+            ldflags.append(' {0} '.format(self.spec['zlib'].libs.joined()))
 
         cflags.append('-DCOMMON_PTHREAD')
+
+        # NOTE: bg-q platform needs -lpthread (and not -pthread)
+        # otherwise we get illegal instruction error during runtime
         if self.spec.satisfies('platform=darwin'):
             cflags.append('-DCOMMON_PTHREAD_BARRIER')
             ldflags.append('-lm -pthread')
+        elif self.spec.satisfies('platform=bgq'):
+            ldflags.append('-lm -lrt -lpthread')
         else:
             ldflags.append('-lm -lrt -pthread')
 
@@ -150,8 +176,8 @@ class Scotch(Package):
 
         # General Features #
 
-        flex_path = os.path.join(self.spec['flex'].prefix.bin, 'flex')
-        bison_path = os.path.join(self.spec['bison'].prefix.bin, 'bison')
+        flex_path = self.spec['flex'].command.path
+        bison_path = self.spec['bison'].command.path
         makefile_inc.extend([
             'EXE       =',
             'OBJ       = .o',
@@ -217,4 +243,4 @@ class Scotch(Package):
         install_tree('bin', prefix.bin)
         install_tree('lib', prefix.lib)
         install_tree('include', prefix.include)
-        install_tree('man/man1', prefix.share_man1)
+        install_tree('man/man1', prefix.share.man.man1)

@@ -1,27 +1,8 @@
-##############################################################################
-# Copyright (c) 2013-2016, Lawrence Livermore National Security, LLC.
-# Produced at the Lawrence Livermore National Laboratory.
+# Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+# Spack Project Developers. See the top-level COPYRIGHT file for details.
 #
-# This file is part of Spack.
-# Created by Todd Gamblin, tgamblin@llnl.gov, All rights reserved.
-# LLNL-CODE-647188
-#
-# For details, see https://github.com/llnl/spack
-# Please also see the LICENSE file for our notice and the LGPL.
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License (as
-# published by the Free Software Foundation) version 2.1, February 1999.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the IMPLIED WARRANTY OF
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the terms and
-# conditions of the GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public
-# License along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
-##############################################################################
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
 from spack import *
 
 
@@ -33,7 +14,8 @@ class AllineaReports(Package):
 
     homepage = "http://www.allinea.com/products/allinea-performance-reports"
 
-    version('6.0.4', '3f13b08a32682737bc05246fbb2fcc77')
+    version('7.0.5', '555d0d7d1b904a57d87352b5f5e1415b')
+    #version('6.0.4', '3f13b08a32682737bc05246fbb2fcc77')
 
     # Licensing
     license_required = True
@@ -45,8 +27,9 @@ class AllineaReports(Package):
     def url_for_version(self, version):
         # TODO: add support for other architectures/distributions
         url = "http://content.allinea.com/downloads/"
-        return url + "allinea-reports-%s-Redhat-6.0-x86_64.tar" % version
+        #return url + "allinea-reports-%s-Redhat-6.0-x86_64.tar" % version
+        return url + "allinea-reports-%s-Suse-12-x86_64.tar" % version
 
     def install(self, spec, prefix):
-        textinstall = which('textinstall.sh')
+        textinstall = Executable('./textinstall.sh')
         textinstall('--accept-licence', prefix)

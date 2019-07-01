@@ -1,53 +1,66 @@
-##############################################################################
-# Copyright (c) 2013-2016, Lawrence Livermore National Security, LLC.
-# Produced at the Lawrence Livermore National Laboratory.
+# Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+# Spack Project Developers. See the top-level COPYRIGHT file for details.
 #
-# This file is part of Spack.
-# Created by Todd Gamblin, tgamblin@llnl.gov, All rights reserved.
-# LLNL-CODE-647188
-#
-# For details, see https://github.com/llnl/spack
-# Please also see the LICENSE file for our notice and the LGPL.
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License (as
-# published by the Free Software Foundation) version 2.1, February 1999.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the IMPLIED WARRANTY OF
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the terms and
-# conditions of the GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public
-# License along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
-##############################################################################
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
 from spack import *
 
 
-class Zfp(Package):
-    """zfp is an open source C library for compressed floating-point arrays
-       that supports very high throughput read and write random acces,
-       target error bounds or bit rates.  Although bit-for-bit lossless
-       compression is not always possible, zfp is usually accurate to
-       within machine epsilon in near-lossless mode, and is often orders
-       of magnitude more accurate than other lossy compressors.
-
+class Zfp(MakefilePackage):
+    """zfp is an open source C/C++ library for high-fidelity, high-throughput
+       lossy compression of floating-point and integer multi-dimensional
+       arrays.
     """
 
-    homepage = "http://computation.llnl.gov/projects/floating-point-compression"
-    url      = "http://computation.llnl.gov/projects/floating-point-compression/download/zfp-0.5.0.tar.gz"
+    homepage = 'http://computation.llnl.gov/projects/floating-point-compression'
+    url      = 'http://computation.llnl.gov/projects/floating-point-compression/download/zfp-0.5.2.tar.gz'
 
+    version('0.5.4', sha256='768a05ed9bf10e54ac306f90b81dd17b0e7b13782f01823d7da4394fd2da8adb')
+    version('0.5.2', '2f0a77aa34087219a6e10b8b7d031e77')
+    version('0.5.1', '0ed7059a9b480635e0dd33745e213d17')
     version('0.5.0', '2ab29a852e65ad85aae38925c5003654')
 
-    def install(self, spec, prefix):
-        make("shared")
+    variant('bsws',
+        default='64',
+        values=('8', '16', '32', '64'),
+        multi=False,
+        description='Bit stream word size: use smaller for finer ' \
+            'rate granularity. Use 8 for H5Z-ZFP filter.')
 
-        # No install provided
+    variant('shared', default=True,
+            description='Build shared versions of the library')
+
+    def edit(self, spec, prefix):
+        config_file = FileFilter('Config')
+        config_file.filter(
+            r'^\s*#\s*DEFS\s*\+=\s*-DBIT_STREAM_WORD_TYPE\s*=\s*uint8',
+            'DEFS += -DBIT_STREAM_WORD_TYPE=uint%s' %
+            spec.variants['bsws'].value)
+
+    def build(self, spec, prefix):
+        with working_dir('src'):
+            if '~shared' in spec:
+                make('static')
+            else:
+                make('shared')
+
+    def install(self, spec, prefix):
+        incdir = 'include' if spec.satisfies('@0.5.1:') else 'inc'
+
+        # Note: ZFP package does not provide an install target
         mkdirp(prefix.lib)
         mkdirp(prefix.include)
-        install('lib/libzfp.so', prefix.lib)
-        install('inc/zfp.h', prefix.include)
-        install('inc/types.h', prefix.include)
-        install('inc/bitstream.h', prefix.include)
-        install('inc/system.h', prefix.include)
+        # Note: ZFP package builds .so files even on OSX
+        if '~shared' in spec:
+            install('lib/libzfp.a', prefix.lib)
+        else:
+            install('lib/libzfp.so', prefix.lib)
+        install('%s/zfp.h' % incdir, prefix.include)
+        install('%s/bitstream.h' % incdir, prefix.include)
+        if spec.satisfies('@0.5.1:'):
+            mkdirp('%s/zfp' % prefix.include)
+            install('%s/zfp/system.h' % incdir, '%s/zfp' % prefix.include)
+            install('%s/zfp/types.h' % incdir, '%s/zfp' % prefix.include)
+        else:
+            install('%s/types.h' % incdir, prefix.include)
+            install('%s/system.h' % incdir, prefix.include)

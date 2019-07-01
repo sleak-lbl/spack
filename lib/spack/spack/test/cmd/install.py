@@ -1,215 +1,592 @@
-##############################################################################
-# Copyright (c) 2013-2016, Lawrence Livermore National Security, LLC.
-# Produced at the Lawrence Livermore National Laboratory.
+# Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+# Spack Project Developers. See the top-level COPYRIGHT file for details.
 #
-# This file is part of Spack.
-# Created by Todd Gamblin, tgamblin@llnl.gov, All rights reserved.
-# LLNL-CODE-647188
-#
-# For details, see https://github.com/llnl/spack
-# Please also see the LICENSE file for our notice and the LGPL.
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License (as
-# published by the Free Software Foundation) version 2.1, February 1999.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the IMPLIED WARRANTY OF
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the terms and
-# conditions of the GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public
-# License along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
-##############################################################################
-import StringIO
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
 import argparse
-import codecs
-import collections
-import contextlib
-import unittest
+import os
+import filecmp
+import re
+from six.moves import builtins
+import time
 
-import llnl.util.filesystem
-import spack
-import spack.cmd
-import spack.cmd.install as install
+import pytest
 
-FILE_REGISTRY = collections.defaultdict(StringIO.StringIO)
+import llnl.util.filesystem as fs
 
+import spack.config
+import spack.package
+import spack.cmd.install
+from spack.error import SpackError
+from spack.spec import Spec
+from spack.main import SpackCommand
 
-# Monkey-patch open to write module files to a StringIO instance
-@contextlib.contextmanager
-def mock_open(filename, mode, *args):
-    if not mode == 'wb':
-        message = 'test.test_install : unexpected opening mode for mock_open'
-        raise RuntimeError(message)
+from six.moves.urllib.error import HTTPError, URLError
 
-    FILE_REGISTRY[filename] = StringIO.StringIO()
-
-    try:
-        yield FILE_REGISTRY[filename]
-    finally:
-        handle = FILE_REGISTRY[filename]
-        FILE_REGISTRY[filename] = handle.getvalue()
-        handle.close()
+install = SpackCommand('install')
 
 
-class MockSpec(object):
-
-    def __init__(self, name, version, hashStr=None):
-        self._dependencies = {}
-        self.name = name
-        self.version = version
-        self.hash = hashStr if hashStr else hash((name, version))
-
-    def _deptype_norm(self, deptype):
-        if deptype is None:
-            return spack.alldeps
-        # Force deptype to be a tuple so that we can do set intersections.
-        if isinstance(deptype, str):
-            return (deptype,)
-        return deptype
-
-    def _find_deps(self, where, deptype):
-        deptype = self._deptype_norm(deptype)
-
-        return [dep.spec
-                for dep in where.values()
-                if deptype and any(d in deptype for d in dep.deptypes)]
-
-    def dependencies(self, deptype=None):
-        return self._find_deps(self._dependencies, deptype)
-
-    def dependents(self, deptype=None):
-        return self._find_deps(self._dependents, deptype)
-
-    def traverse(self, order=None):
-        for _, spec in self._dependencies.items():
-            yield spec.spec
-        yield self
-
-    def dag_hash(self):
-        return self.hash
-
-    @property
-    def short_spec(self):
-        return '-'.join([self.name, str(self.version), str(self.hash)])
+@pytest.fixture(scope='module')
+def parser():
+    """Returns the parser for the module command"""
+    parser = argparse.ArgumentParser()
+    spack.cmd.install.setup_parser(parser)
+    return parser
 
 
-class MockPackage(object):
-
-    def __init__(self, spec, buildLogPath):
-        self.name = spec.name
-        self.spec = spec
-        self.installed = False
-        self.build_log_path = buildLogPath
-
-    def do_install(self, *args, **kwargs):
-        for x in self.spec.dependencies():
-            x.package.do_install(*args, **kwargs)
-        self.installed = True
+@pytest.fixture()
+def noop_install(monkeypatch):
+    def noop(*args, **kwargs):
+        pass
+    monkeypatch.setattr(spack.package.PackageBase, 'do_install', noop)
 
 
-class MockPackageDb(object):
+def test_install_package_and_dependency(
+        tmpdir, mock_packages, mock_archive, mock_fetch, config,
+        install_mockery):
 
-    def __init__(self, init=None):
-        self.specToPkg = {}
-        if init:
-            self.specToPkg.update(init)
+    with tmpdir.as_cwd():
+        install('--log-format=junit', '--log-file=test.xml', 'libdwarf')
 
-    def get(self, spec):
-        return self.specToPkg[spec]
+    files = tmpdir.listdir()
+    filename = tmpdir.join('test.xml')
+    assert filename in files
 
-
-def mock_fetch_log(path):
-    return []
-
-
-specX = MockSpec('X', '1.2.0')
-specY = MockSpec('Y', '2.3.8')
-specX._dependencies['Y'] = spack.spec.DependencySpec(
-    specX, specY, spack.alldeps)
-pkgX = MockPackage(specX, 'logX')
-pkgY = MockPackage(specY, 'logY')
-specX.package = pkgX
-specY.package = pkgY
+    content = filename.open().read()
+    assert 'tests="2"' in content
+    assert 'failures="0"' in content
+    assert 'errors="0"' in content
 
 
-# TODO: add test(s) where Y fails to install
-class InstallTestJunitLog(unittest.TestCase):
-    """Tests test-install where X->Y"""
+@pytest.mark.disable_clean_stage_check
+def test_install_runtests_notests(monkeypatch, mock_packages, install_mockery):
+    def check(pkg):
+        assert not pkg.run_tests
+    monkeypatch.setattr(spack.package.PackageBase, 'unit_test_check', check)
+    install('-v', 'dttop')
 
-    def setUp(self):
-        super(InstallTestJunitLog, self).setUp()
-        install.PackageBase = MockPackage
-        # Monkey patch parse specs
 
-        def monkey_parse_specs(x, concretize):
-            if x == ['X']:
-                return [specX]
-            elif x == ['Y']:
-                return [specY]
-            return []
+@pytest.mark.disable_clean_stage_check
+def test_install_runtests_root(monkeypatch, mock_packages, install_mockery):
+    def check(pkg):
+        assert pkg.run_tests == (pkg.name == 'dttop')
 
-        self.parse_specs = spack.cmd.parse_specs
-        spack.cmd.parse_specs = monkey_parse_specs
+    monkeypatch.setattr(spack.package.PackageBase, 'unit_test_check', check)
+    install('--test=root', 'dttop')
 
-        # Monkey patch os.mkdirp
-        self.mkdirp = llnl.util.filesystem.mkdirp
-        llnl.util.filesystem.mkdirp = lambda x: True
 
-        # Monkey patch open
-        self.codecs_open = codecs.open
-        codecs.open = mock_open
+@pytest.mark.disable_clean_stage_check
+def test_install_runtests_all(monkeypatch, mock_packages, install_mockery):
+    def check(pkg):
+        assert pkg.run_tests
 
-        # Clean FILE_REGISTRY
-        FILE_REGISTRY.clear()
+    monkeypatch.setattr(spack.package.PackageBase, 'unit_test_check', check)
+    install('--test=all', 'a')
+    install('--run-tests', 'a')
 
-        pkgX.installed = False
-        pkgY.installed = False
 
-        # Monkey patch pkgDb
-        self.saved_db = spack.repo
-        pkgDb = MockPackageDb({specX: pkgX, specY: pkgY})
-        spack.repo = pkgDb
+def test_install_package_already_installed(
+        tmpdir, mock_packages, mock_archive, mock_fetch, config,
+        install_mockery):
 
-    def tearDown(self):
-        # Remove the monkey patched test_install.open
-        codecs.open = self.codecs_open
+    with tmpdir.as_cwd():
+        install('libdwarf')
+        install('--log-format=junit', '--log-file=test.xml', 'libdwarf')
 
-        # Remove the monkey patched os.mkdir
-        llnl.util.filesystem.mkdirp = self.mkdirp
-        del self.mkdirp
+    files = tmpdir.listdir()
+    filename = tmpdir.join('test.xml')
+    assert filename in files
 
-        # Remove the monkey patched parse_specs
-        spack.cmd.parse_specs = self.parse_specs
-        del self.parse_specs
-        super(InstallTestJunitLog, self).tearDown()
+    content = filename.open().read()
+    assert 'tests="2"' in content
+    assert 'failures="0"' in content
+    assert 'errors="0"' in content
 
-        spack.repo = self.saved_db
+    skipped = [line for line in content.split('\n') if 'skipped' in line]
+    assert len(skipped) == 2
 
-    def test_installing_both(self):
-        parser = argparse.ArgumentParser()
-        install.setup_parser(parser)
-        args = parser.parse_args(['--log-format=junit', 'X'])
-        install.install(parser, args)
-        self.assertEqual(len(FILE_REGISTRY), 1)
-        for _, content in FILE_REGISTRY.items():
-            self.assertTrue('tests="2"' in content)
-            self.assertTrue('failures="0"' in content)
-            self.assertTrue('errors="0"' in content)
 
-    def test_dependency_already_installed(self):
-        pkgX.installed = True
-        pkgY.installed = True
-        parser = argparse.ArgumentParser()
-        install.setup_parser(parser)
-        args = parser.parse_args(['--log-format=junit', 'X'])
-        install.install(parser, args)
-        self.assertEqual(len(FILE_REGISTRY), 1)
-        for _, content in FILE_REGISTRY.items():
-            self.assertTrue('tests="2"' in content)
-            self.assertTrue('failures="0"' in content)
-            self.assertTrue('errors="0"' in content)
-            self.assertEqual(
-                sum('skipped' in line for line in content.split('\n')), 2)
+@pytest.mark.parametrize('arguments,expected', [
+    ([], spack.config.get('config:dirty')),  # default from config file
+    (['--clean'], False),
+    (['--dirty'], True),
+])
+def test_install_dirty_flag(parser, arguments, expected):
+    args = parser.parse_args(arguments)
+    assert args.dirty == expected
+
+
+def test_package_output(tmpdir, capsys, install_mockery, mock_fetch):
+    """Ensure output printed from pkgs is captured by output redirection."""
+    # we can't use output capture here because it interferes with Spack's
+    # logging. TODO: see whether we can get multiple log_outputs to work
+    # when nested AND in pytest
+    spec = Spec('printing-package').concretized()
+    pkg = spec.package
+    pkg.do_install(verbose=True)
+
+    log_file = os.path.join(spec.prefix, '.spack', 'build.out')
+    with open(log_file) as f:
+        out = f.read()
+
+    # make sure that output from the actual package file appears in the
+    # right place in the build log.
+    assert re.search(r"BEFORE INSTALL\n==>( \[.+\])? './configure'", out)
+    assert "'install'\nAFTER INSTALL" in out
+
+
+@pytest.mark.disable_clean_stage_check
+def test_install_output_on_build_error(mock_packages, mock_archive, mock_fetch,
+                                       config, install_mockery, capfd):
+    # capfd interferes with Spack's capturing
+    with capfd.disabled():
+        out = install('build-error', fail_on_error=False)
+    assert isinstance(install.error, spack.build_environment.ChildError)
+    assert install.error.name == 'ProcessError'
+    assert 'configure: error: in /path/to/some/file:' in out
+    assert 'configure: error: cannot run C compiled programs.' in out
+
+
+@pytest.mark.disable_clean_stage_check
+def test_install_output_on_python_error(
+        mock_packages, mock_archive, mock_fetch, config, install_mockery):
+    out = install('failing-build', fail_on_error=False)
+    assert isinstance(install.error, spack.build_environment.ChildError)
+    assert install.error.name == 'InstallError'
+    assert 'raise InstallError("Expected failure.")' in out
+
+
+@pytest.mark.disable_clean_stage_check
+def test_install_with_source(
+        mock_packages, mock_archive, mock_fetch, config, install_mockery):
+    """Verify that source has been copied into place."""
+    install('--source', '--keep-stage', 'trivial-install-test-package')
+    spec = Spec('trivial-install-test-package').concretized()
+    src = os.path.join(
+        spec.prefix.share, 'trivial-install-test-package', 'src')
+    assert filecmp.cmp(os.path.join(mock_archive.path, 'configure'),
+                       os.path.join(src, 'configure'))
+
+
+@pytest.mark.disable_clean_stage_check
+def test_show_log_on_error(mock_packages, mock_archive, mock_fetch,
+                           config, install_mockery, capfd):
+    """Make sure --show-log-on-error works."""
+    with capfd.disabled():
+        out = install('--show-log-on-error', 'build-error',
+                      fail_on_error=False)
+    assert isinstance(install.error, spack.build_environment.ChildError)
+    assert install.error.pkg.name == 'build-error'
+    assert 'Full build log:' in out
+
+    errors = [line for line in out.split('\n')
+              if 'configure: error: cannot run C compiled programs' in line]
+    assert len(errors) == 2
+
+
+def test_install_overwrite(
+        mock_packages, mock_archive, mock_fetch, config, install_mockery
+):
+    # Try to install a spec and then to reinstall it.
+    spec = Spec('libdwarf')
+    spec.concretize()
+
+    install('libdwarf')
+
+    assert os.path.exists(spec.prefix)
+    expected_md5 = fs.hash_directory(spec.prefix)
+
+    # Modify the first installation to be sure the content is not the same
+    # as the one after we reinstalled
+    with open(os.path.join(spec.prefix, 'only_in_old'), 'w') as f:
+        f.write('This content is here to differentiate installations.')
+
+    bad_md5 = fs.hash_directory(spec.prefix)
+
+    assert bad_md5 != expected_md5
+
+    install('--overwrite', '-y', 'libdwarf')
+    assert os.path.exists(spec.prefix)
+    assert fs.hash_directory(spec.prefix) == expected_md5
+    assert fs.hash_directory(spec.prefix) != bad_md5
+
+
+def test_install_overwrite_not_installed(
+        mock_packages, mock_archive, mock_fetch, config, install_mockery
+):
+    # Try to install a spec and then to reinstall it.
+    spec = Spec('libdwarf')
+    spec.concretize()
+
+    assert not os.path.exists(spec.prefix)
+
+    install('--overwrite', '-y', 'libdwarf')
+    assert os.path.exists(spec.prefix)
+
+
+def test_install_overwrite_multiple(
+        mock_packages, mock_archive, mock_fetch, config, install_mockery
+):
+    # Try to install a spec and then to reinstall it.
+    libdwarf = Spec('libdwarf')
+    libdwarf.concretize()
+
+    install('libdwarf')
+
+    cmake = Spec('cmake')
+    cmake.concretize()
+
+    install('cmake')
+
+    assert os.path.exists(libdwarf.prefix)
+    expected_libdwarf_md5 = fs.hash_directory(libdwarf.prefix)
+
+    assert os.path.exists(cmake.prefix)
+    expected_cmake_md5 = fs.hash_directory(cmake.prefix)
+
+    # Modify the first installation to be sure the content is not the same
+    # as the one after we reinstalled
+    with open(os.path.join(libdwarf.prefix, 'only_in_old'), 'w') as f:
+        f.write('This content is here to differentiate installations.')
+    with open(os.path.join(cmake.prefix, 'only_in_old'), 'w') as f:
+        f.write('This content is here to differentiate installations.')
+
+    bad_libdwarf_md5 = fs.hash_directory(libdwarf.prefix)
+    bad_cmake_md5 = fs.hash_directory(cmake.prefix)
+
+    assert bad_libdwarf_md5 != expected_libdwarf_md5
+    assert bad_cmake_md5 != expected_cmake_md5
+
+    install('--overwrite', '-y', 'libdwarf', 'cmake')
+    assert os.path.exists(libdwarf.prefix)
+    assert os.path.exists(cmake.prefix)
+    assert fs.hash_directory(libdwarf.prefix) == expected_libdwarf_md5
+    assert fs.hash_directory(cmake.prefix) == expected_cmake_md5
+    assert fs.hash_directory(libdwarf.prefix) != bad_libdwarf_md5
+    assert fs.hash_directory(cmake.prefix) != bad_cmake_md5
+
+
+@pytest.mark.usefixtures(
+    'mock_packages', 'mock_archive', 'mock_fetch', 'config', 'install_mockery',
+)
+def test_install_conflicts(conflict_spec):
+    # Make sure that spec with conflicts raises a SpackError
+    with pytest.raises(SpackError):
+        install(conflict_spec)
+
+
+@pytest.mark.usefixtures(
+    'mock_packages', 'mock_archive', 'mock_fetch', 'config', 'install_mockery',
+)
+def test_install_invalid_spec(invalid_spec):
+    # Make sure that invalid specs raise a SpackError
+    with pytest.raises(SpackError, match='Unexpected token'):
+        install(invalid_spec)
+
+
+@pytest.mark.usefixtures('noop_install', 'config')
+@pytest.mark.parametrize('spec,concretize,error_code', [
+    (Spec('mpi'), False, 1),
+    (Spec('mpi'), True, 0),
+    (Spec('boost'), False, 1),
+    (Spec('boost'), True, 0)
+])
+def test_install_from_file(spec, concretize, error_code, tmpdir):
+
+    if concretize:
+        spec.concretize()
+
+    specfile = tmpdir.join('spec.yaml')
+
+    with specfile.open('w') as f:
+        spec.to_yaml(f)
+
+    # Relative path to specfile (regression for #6906)
+    with fs.working_dir(specfile.dirname):
+        # A non-concrete spec will fail to be installed
+        install('-f', specfile.basename, fail_on_error=False)
+    assert install.returncode == error_code
+
+    # Absolute path to specfile (regression for #6983)
+    install('-f', str(specfile), fail_on_error=False)
+    assert install.returncode == error_code
+
+
+@pytest.mark.disable_clean_stage_check
+@pytest.mark.usefixtures(
+    'mock_packages', 'mock_archive', 'mock_fetch', 'config', 'install_mockery'
+)
+@pytest.mark.parametrize('exc_typename,msg', [
+    ('RuntimeError', 'something weird happened'),
+    ('ValueError', 'spec is not concrete')
+])
+def test_junit_output_with_failures(tmpdir, exc_typename, msg):
+    with tmpdir.as_cwd():
+        install(
+            '--log-format=junit', '--log-file=test.xml',
+            'raiser',
+            'exc_type={0}'.format(exc_typename),
+            'msg="{0}"'.format(msg)
+        )
+
+    files = tmpdir.listdir()
+    filename = tmpdir.join('test.xml')
+    assert filename in files
+
+    content = filename.open().read()
+
+    # Count failures and errors correctly
+    assert 'tests="1"' in content
+    assert 'failures="1"' in content
+    assert 'errors="0"' in content
+
+    # We want to have both stdout and stderr
+    assert '<system-out>' in content
+    assert msg in content
+
+
+@pytest.mark.disable_clean_stage_check
+@pytest.mark.parametrize('exc_typename,msg', [
+    ('RuntimeError', 'something weird happened'),
+    ('KeyboardInterrupt', 'Ctrl-C strikes again')
+])
+def test_junit_output_with_errors(
+        exc_typename, msg,
+        mock_packages, mock_archive, mock_fetch, install_mockery,
+        config, tmpdir, monkeypatch):
+
+    def just_throw(*args, **kwargs):
+        exc_type = getattr(builtins, exc_typename)
+        raise exc_type(msg)
+
+    monkeypatch.setattr(spack.package.PackageBase, 'do_install', just_throw)
+
+    with tmpdir.as_cwd():
+        install('--log-format=junit', '--log-file=test.xml', 'libdwarf')
+
+    files = tmpdir.listdir()
+    filename = tmpdir.join('test.xml')
+    assert filename in files
+
+    content = filename.open().read()
+
+    # Count failures and errors correctly
+    assert 'tests="1"' in content
+    assert 'failures="0"' in content
+    assert 'errors="1"' in content
+
+    # We want to have both stdout and stderr
+    assert '<system-out>' in content
+    assert msg in content
+
+
+@pytest.mark.usefixtures('noop_install', 'config')
+@pytest.mark.parametrize('clispecs,filespecs', [
+    [[],                  ['mpi']],
+    [[],                  ['mpi', 'boost']],
+    [['cmake'],           ['mpi']],
+    [['cmake', 'libelf'], []],
+    [['cmake', 'libelf'], ['mpi', 'boost']],
+])
+def test_install_mix_cli_and_files(clispecs, filespecs, tmpdir):
+
+    args = clispecs
+
+    for spec in filespecs:
+        filepath = tmpdir.join(spec + '.yaml')
+        args = ['-f', str(filepath)] + args
+        s = Spec(spec)
+        s.concretize()
+        with filepath.open('w') as f:
+            s.to_yaml(f)
+
+    install(*args, fail_on_error=False)
+    assert install.returncode == 0
+
+
+def test_extra_files_are_archived(mock_packages, mock_archive, mock_fetch,
+                                  config, install_mockery):
+    s = Spec('archive-files')
+    s.concretize()
+
+    install('archive-files')
+
+    archive_dir = os.path.join(
+        spack.store.layout.metadata_path(s), 'archived-files'
+    )
+    config_log = os.path.join(archive_dir,
+                              mock_archive.expanded_archive_basedir,
+                              'config.log')
+    assert os.path.exists(config_log)
+
+    errors_txt = os.path.join(archive_dir, 'errors.txt')
+    assert os.path.exists(errors_txt)
+
+
+@pytest.mark.disable_clean_stage_check
+def test_cdash_report_concretization_error(tmpdir, mock_fetch, install_mockery,
+                                           capfd, conflict_spec):
+    # capfd interferes with Spack's capturing
+    with capfd.disabled():
+        with tmpdir.as_cwd():
+            with pytest.raises(SpackError):
+                install(
+                    '--log-format=cdash',
+                    '--log-file=cdash_reports',
+                    conflict_spec)
+            report_dir = tmpdir.join('cdash_reports')
+            assert report_dir in tmpdir.listdir()
+            report_file = report_dir.join('Update.xml')
+            assert report_file in report_dir.listdir()
+            content = report_file.open().read()
+            assert '<UpdateReturnStatus>Conflicts in concretized spec' \
+                in content
+
+
+@pytest.mark.disable_clean_stage_check
+def test_cdash_upload_build_error(tmpdir, mock_fetch, install_mockery,
+                                  capfd):
+    # capfd interferes with Spack's capturing
+    with capfd.disabled():
+        with tmpdir.as_cwd():
+            with pytest.raises((HTTPError, URLError)):
+                install(
+                    '--log-format=cdash',
+                    '--log-file=cdash_reports',
+                    '--cdash-upload-url=http://localhost/fakeurl/submit.php?project=Spack',
+                    'build-error')
+            report_dir = tmpdir.join('cdash_reports')
+            assert report_dir in tmpdir.listdir()
+            report_file = report_dir.join('Build.xml')
+            assert report_file in report_dir.listdir()
+            content = report_file.open().read()
+            assert '<Text>configure: error: in /path/to/some/file:</Text>' in content
+
+
+@pytest.mark.disable_clean_stage_check
+def test_cdash_upload_clean_build(tmpdir, mock_fetch, install_mockery,
+                                  capfd):
+    # capfd interferes with Spack's capturing
+    with capfd.disabled():
+        with tmpdir.as_cwd():
+            install(
+                '--log-file=cdash_reports',
+                '--log-format=cdash',
+                'a')
+            report_dir = tmpdir.join('cdash_reports')
+            assert report_dir in tmpdir.listdir()
+            report_file = report_dir.join('a_Build.xml')
+            assert report_file in report_dir.listdir()
+            content = report_file.open().read()
+            assert '</Build>' in content
+            assert '<Text>' not in content
+
+
+@pytest.mark.disable_clean_stage_check
+def test_cdash_upload_extra_params(tmpdir, mock_fetch, install_mockery, capfd):
+    # capfd interferes with Spack's capturing
+    with capfd.disabled():
+        with tmpdir.as_cwd():
+            install(
+                '--log-file=cdash_reports',
+                '--log-format=cdash',
+                '--cdash-build=my_custom_build',
+                '--cdash-site=my_custom_site',
+                '--cdash-track=my_custom_track',
+                'a')
+            report_dir = tmpdir.join('cdash_reports')
+            assert report_dir in tmpdir.listdir()
+            report_file = report_dir.join('a_Build.xml')
+            assert report_file in report_dir.listdir()
+            content = report_file.open().read()
+            assert 'Site BuildName="my_custom_build - a"' in content
+            assert 'Name="my_custom_site"' in content
+            assert '-my_custom_track' in content
+
+
+@pytest.mark.disable_clean_stage_check
+def test_cdash_buildstamp_param(tmpdir, mock_fetch, install_mockery, capfd):
+    # capfd interferes with Spack's capturing
+    with capfd.disabled():
+        with tmpdir.as_cwd():
+            cdash_track = 'some_mocked_track'
+            buildstamp_format = "%Y%m%d-%H%M-{0}".format(cdash_track)
+            buildstamp = time.strftime(buildstamp_format,
+                                       time.localtime(int(time.time())))
+            install(
+                '--log-file=cdash_reports',
+                '--log-format=cdash',
+                '--cdash-buildstamp={0}'.format(buildstamp),
+                'a')
+            report_dir = tmpdir.join('cdash_reports')
+            assert report_dir in tmpdir.listdir()
+            report_file = report_dir.join('a_Build.xml')
+            assert report_file in report_dir.listdir()
+            content = report_file.open().read()
+            assert buildstamp in content
+
+
+@pytest.mark.disable_clean_stage_check
+def test_cdash_install_from_spec_yaml(tmpdir, mock_fetch, install_mockery,
+                                      capfd, mock_packages, mock_archive,
+                                      config):
+    # capfd interferes with Spack's capturing
+    with capfd.disabled():
+        with tmpdir.as_cwd():
+
+            spec_yaml_path = str(tmpdir.join('spec.yaml'))
+
+            pkg_spec = Spec('a')
+            pkg_spec.concretize()
+
+            with open(spec_yaml_path, 'w') as fd:
+                fd.write(pkg_spec.to_yaml(all_deps=True))
+
+            install(
+                '--log-format=cdash',
+                '--log-file=cdash_reports',
+                '--cdash-build=my_custom_build',
+                '--cdash-site=my_custom_site',
+                '--cdash-track=my_custom_track',
+                '-f', spec_yaml_path)
+
+            report_dir = tmpdir.join('cdash_reports')
+            assert report_dir in tmpdir.listdir()
+            report_file = report_dir.join('a_Configure.xml')
+            assert report_file in report_dir.listdir()
+            content = report_file.open().read()
+            import re
+            install_command_regex = re.compile(
+                r'<ConfigureCommand>(.+)</ConfigureCommand>',
+                re.MULTILINE | re.DOTALL)
+            m = install_command_regex.search(content)
+            assert m
+            install_command = m.group(1)
+            assert 'a@' in install_command
+
+
+@pytest.mark.disable_clean_stage_check
+def test_build_error_output(tmpdir, mock_fetch, install_mockery, capfd):
+    with capfd.disabled():
+        msg = ''
+        try:
+            install('build-error')
+            assert False, "no exception was raised!"
+        except spack.build_environment.ChildError as e:
+            msg = e.long_message
+
+        assert 'configure: error: in /path/to/some/file:' in msg
+        assert 'configure: error: cannot run C compiled programs.' in msg
+
+
+@pytest.mark.disable_clean_stage_check
+def test_build_warning_output(tmpdir, mock_fetch, install_mockery, capfd):
+    with capfd.disabled():
+        msg = ''
+        try:
+            install('build-warnings')
+        except spack.build_environment.ChildError as e:
+            msg = e.long_message
+
+        assert 'WARNING: ALL CAPITAL WARNING!' in msg
+        assert 'foo.c:89: warning: some weird warning!' in msg
