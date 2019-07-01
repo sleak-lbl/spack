@@ -11,23 +11,21 @@ import spack.version
 from spack.architecture import OperatingSystem
 from spack.util.module_cmd import module
 
-#
-# Location of the Cray CLE release file, which we look at to get the CNL
-# OS version.
-#
+#: Location of the Cray CLE release file, which we look at to get the CNL
+#: OS version.
 _cle_release_file = '/etc/opt/cray/release/cle-release'
 
 
 def read_cle_release_file():
     """Read the CLE release file and return a dict with its attributes.
 
-    The release file looks something like this:
+    The release file looks something like this::
 
         RELEASE=6.0.UP07
         BUILD=6.0.7424
         ...
 
-    The dictionary we produce looks like this:
+    The dictionary we produce looks like this::
 
         {
           "RELEASE": "6.0.UP07",
