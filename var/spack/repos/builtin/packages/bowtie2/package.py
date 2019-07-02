@@ -19,6 +19,7 @@ class Bowtie2(Package):
     version('2.3.1', 'b4efa22612e98e0c23de3d2c9f2f2478')
     version('2.3.0', '3ab33f30f00f3c30fec1355b4e569ea2')
     version('2.2.5', '51fa97a862d248d7ee660efc1147c75f')
+    version('2.0.2', '79c3364082b3fb36215cc62704138ef7')
 
     depends_on('tbb', when='@2.3.0:')
     depends_on('readline', when='@2.3.1:')
@@ -31,7 +32,7 @@ class Bowtie2(Package):
     patch('bowtie2-2.3.0.patch', when='@2.3.0', level=0)
 
     # seems to have trouble with 6's -std=gnu++14
-    conflicts('%gcc@6:', when='@:2.3.1')
+#    conflicts('%gcc@6:', when='@:2.3.1')
 
     @run_before('install')
     def filter_sbang(self):
