@@ -51,3 +51,4 @@ class Nco(AutotoolsPackage):
         spack_env.set('NETCDF_LIB', spec['netcdf'].prefix.lib)
         spack_env.set('ANTLR_ROOT', spec['antlr'].prefix)
         spack_env.set('UDUNITS2_PATH', spec['udunits2'].prefix)
+        spack.util.module_cmd.module('unload','craype-hugepages2M')

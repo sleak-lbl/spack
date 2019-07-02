@@ -402,11 +402,11 @@ def set_build_environment_variables(pkg, env, dirty):
 
     if pkg.architecture.target.module_name:
         load_module(pkg.architecture.target.module_name)
-    if "cray" in pkg.architecture.platform.name:
+    #if "cray" in pkg.architecture.platform.name:
         # unload the cray-libsci module to prevently silently linking
         # with module.
-        unload_module("cray-libsci")
-        unload_module("darshan")
+     #   unload_module("cray-libsci")
+      #  unload_module("darshan")
     return env
 
 
