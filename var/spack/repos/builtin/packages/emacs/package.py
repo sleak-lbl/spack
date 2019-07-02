@@ -56,6 +56,7 @@ class Emacs(AutotoolsPackage):
         #    spack_env.set('CFLAGS','-std=c11')
         # Now here's a more "correct" solution:
         spack_env.append_flags('CFLAGS','-std=c11')
+        spack.util.module_cmd.module('unload', 'craype-hugepages2M')
 
 
     def configure_args(self):
@@ -82,7 +83,7 @@ class Emacs(AutotoolsPackage):
         # doing so throws an error at build-time
         if sys.platform == 'darwin':
             args.append('--without-ns')
-
+        
         if '+tls' in spec:
             args.append('--with-gnutls')
         else:
