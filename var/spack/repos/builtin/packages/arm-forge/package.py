@@ -21,17 +21,17 @@ class ArmForge(Package):
     version(
         "19.1.1-Suse-15-x86_64",
         sha256="3885ec77b8956285b058890dbbb0b99db433d2e7ca08182b5e93829740ae9cc9",
-        url="http://content.allinea.com/downloads/arm-forge-19.1.1-Suse-15-x86_64.tar",
+        url="http://content.allinea.com/downloads/arm-forge-19.1.1-Suse-15.0-x86_64.tar",
     )
     version(
         "19.1-Suse-15-x86_64",
         sha256="20243eb894d1c8e31a6d0ae8fc73384ca77473d11516a6ad82ffb15233f1d13e",
-        url="http://content.allinea.com/downloads/arm-forge-19.1-Suse-15-x86_64.tar",
+        url="http://content.allinea.com/downloads/arm-forge-19.1-Suse-15.0-x86_64.tar",
     )
     version(
         "19.0.5-Suse-15-x86_64",
         sha256="174e624e758c29dad8f566bacf808f471011797c2439112f3a4f9dfcbf207e26",
-        url="http://content.allinea.com/downloads/arm-forge-19.0.5-Suse-15-x86_64.tar",
+        url="http://content.allinea.com/downloads/arm-forge-19.0.5-Suse-15.0-x86_64.tar",
     )
     version(
         "19.0.4-linux-rhel6-x86_64",
