@@ -51,7 +51,8 @@ class ArmReports(Package):
     )
 
     # Licensing
-    license_required = True
+    #license_required = True     # To avoid a hang during installation
+    license_required = False
     license_comment = "#"
     license_files = ["licences/Licence"]
     license_vars = [
