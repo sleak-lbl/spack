@@ -143,6 +143,9 @@ class Cmake(Package):
 
         return args
 
+    def setup_environment(self, spack_env, run_env):
+        spack.util.module_cmd.module('unload', 'craype-hugepages2M')
+
     def bootstrap(self, spec, prefix):
         bootstrap = Executable('./bootstrap')
         bootstrap(*self.bootstrap_args())
