@@ -22,7 +22,11 @@ class PyMpi4py(PythonPackage):
     version('2.0.0', '4f7d8126d7367c239fd67615680990e3')
     version('1.3.1', 'dbe9d22bdc8ed965c23a7ceb6f32fc3c')
 
+    variant('nersc', default=False, description='Build for NERSC CLE7. Needed as it fails to build with mpich on CLE7')
     depends_on('python@2.7:2.8,3.3:')
     depends_on('py-setuptools', type='build')
+    depends_on('openmpi', when='+nersc') #fails to build using mpich on CLE7
     depends_on('mpi')
     depends_on('py-cython', when='@develop', type='build')
+    def setup_environment(self, spack_env, run_env):
+        spack.util.module_cmd.module('unload', 'craype-hugepages2M')

@@ -20,11 +20,15 @@ class Adios2(CMakePackage):
     version('2.2.0', sha256='77058ea2ff7224dc02ea519733de42d89112cf21ffe7474fb2fa3c5696152948')
     version('2.1.0', sha256='d4df3b3035b4236b51c77b59d68e756e825834b2ea3cb17439927a027831453b')
     version('2.0.0', sha256='4eeedf4404824d8de6e4ef580b8a703c0aedb5c03f900f5ce6f85f0b35980135')
+    version('NERSC-CLE7', sha256='3bf81ccc20a7f2715935349336a76ba4c8402355e1dc3848fcd6f4c3c5931893')
 
     variant('shared', default=True,
             description='Also build shared libraries')
     variant('mpi', default=True,
             description='Enable MPI')
+
+    variant('nersc', default=False,
+            description='Build for NERSC')
     # transforms
     variant('bzip2', default=True,
             description='Enable BZip2 compression')
@@ -79,6 +83,7 @@ class Adios2(CMakePackage):
     extends('python', when='+python')
     depends_on('python@2.7:', type=('build', 'run'), when='+python')
     depends_on('py-numpy@1.6.1:', type=('build', 'run'), when='+python')
+    depends_on('py-mpi4py@3.0.1+nersc', type=('build', 'run'), when='+nersc +mpi +python')
     depends_on('py-mpi4py@2.0.0:', type=('build', 'run'), when='+mpi +python')
 
     def cmake_args(self):
