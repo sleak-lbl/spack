@@ -35,17 +35,17 @@ class ArmReports(Package):
     #       versions (and checksums) based on the target platform shows up
 
     version(
-        "19.1.1-Suse-15-x86_64",
+        "19.1.1-Suse-15.0-x86_64",
         sha256="5b680c7332592d6347c5ce6ffd9df7f1e67faecf65aa5cd9ddb3ccc2e7ed530c",
         url="http://content.allinea.com/downloads/arm-reports-19.1.1-Suse-15.0-x86_64.tar",
     )
     version(
-        "19.1-Suse-15-x86_64",
+        "19.1-Suse-15.0-x86_64",
         sha256="bf0c1b7623f9ac905e21eac26c3aee1c9ecdbdcdbaed48995fc9e3c1dec6942b",
         url="http://content.allinea.com/downloads/arm-reports-19.1-Suse-15.0-x86_64.tar",
     )
     version(
-        "19.0.5-Suse-15-x86_64",
+        "19.0.5-Suse-15.0-x86_64",
         sha256="e67f5194525e80bb989c20b7385c3f30c3383c4fcee5799bbaa44cee731cef63",
         url="http://content.allinea.com/downloads/arm-reports-19.0.5-Suse-15.0-x86_64.tar",
     )
