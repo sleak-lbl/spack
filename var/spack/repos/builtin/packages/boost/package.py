@@ -249,7 +249,7 @@ class Boost(Package):
                 # that can be used as a compiler option instead.
                 mpi_line = 'using mpi : %s' % spec['mpi'].mpicxx
 
-                 if 'platform=cray' in spec:
+                if 'platform=cray' in spec:
                     mpi_line += ' : <define>MPICH_SKIP_MPICXX'
 
                 f.write(mpi_line + ' ;\n')
