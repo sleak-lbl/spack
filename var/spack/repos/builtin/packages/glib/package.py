@@ -65,6 +65,8 @@ class Glib(AutotoolsPackage):
         return url + '/%s/glib-%s.tar.xz' % (version.up_to(2), version)
 
     def configure_args(self):
+
+        spec = self.spec
         args = []
 
         if '+libmount' in spec:
