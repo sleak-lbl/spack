@@ -65,7 +65,7 @@ class Glib(AutotoolsPackage):
         return url + '/%s/glib-%s.tar.xz' % (version.up_to(2), version)
 
     def configure_args(self):
-	args = []
+        args = []
         args.extend(self.enable_or_disable('libmount'))
         if self.spec.satisfies('@2.53.4:'):
             args.append('--with-python={0}'.format(
