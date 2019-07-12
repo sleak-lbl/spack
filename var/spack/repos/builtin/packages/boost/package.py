@@ -248,11 +248,9 @@ class Boost(Package):
                 # wrappers.  Since Boost doesn't use the MPI C++ bindings,
                 # that can be used as a compiler option instead.
                 mpi_line = 'using mpi : %s' % spec['mpi'].mpicxx
+
                 if 'platform=cray' in spec:
                     mpi_line += ' : <define>MPICH_SKIP_MPICXX'
-
-                mpi_line += " : <include>{0}".format(spec["mpi"].prefix.include)
-                mpi_line += " : <library-path>{0}".format(spec['mpi'].prefix.lib)
 
                 f.write(mpi_line + ' ;\n')
 

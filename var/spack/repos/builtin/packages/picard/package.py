@@ -34,6 +34,7 @@ class Picard(Package):
     version('2.9.2', '0449279a6a89830917e8bcef3a976ef7', expand=False)
     version('2.9.0', 'b711d492f16dfe0084d33e684dca2202', expand=False)
     version('2.8.3', '4a181f55d378cd61d0b127a40dfd5016', expand=False)
+    version('2.7.1', '323c048b5c33ce4cccfd8b481539968b', expand=False)
     version('2.6.0', '91f35f22977d9692ce2718270077dc50', expand=False)
     version('1.140', '308f95516d94c1f3273a4e7e2b315ec2')
 

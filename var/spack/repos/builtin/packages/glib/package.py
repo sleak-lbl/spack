@@ -33,11 +33,11 @@ class Glib(AutotoolsPackage):
     version('2.42.1', '89c4119e50e767d3532158605ee9121a')
 
     variant('libmount', default=False, description='Build with libmount support')
-    variant('shared', default=False, description="Enable shared libs")
     variant(
         'tracing', values=any_combination_of('dtrace', 'systemtap'),
         description='Enable tracing support'
     )
+    variant('shared', default=True, description="Enable shared libs")
 
     depends_on('pkgconfig', type='build')
     depends_on('libffi')
@@ -66,17 +66,6 @@ class Glib(AutotoolsPackage):
 
     def configure_args(self):
         args = []
-
-        if '+libmount' in spec:
-            args.append('--enable-libmount')
-        else:
-            args.append('--disable-libmount')
-
-        if "+shared" in spec:
-            args.append("--enable-shared")
-        else:
-            args.append("--disable-shared")
-
         args.extend(self.enable_or_disable('libmount'))
         if self.spec.satisfies('@2.53.4:'):
             args.append('--with-python={0}'.format(
