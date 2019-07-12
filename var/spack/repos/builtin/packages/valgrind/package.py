@@ -55,6 +55,10 @@ clang: error: unknown argument: '-static-libubsan'
     # http://valgrind.10908.n7.nabble.com/Unable-to-compile-on-Mac-OS-X-10-11-td57237.html
     patch('valgrind_3_12_0_osx.patch', when='@3.12.0 platform=darwin')
 
+    def setup_environment(self, spack_env, run_env):
+        spec = self.spec
+        spack.util.module_cmd.module('unload', 'craype-hugepages2M')
+
     def configure_args(self):
         spec = self.spec
         options = []
