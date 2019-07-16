@@ -55,6 +55,7 @@ class Gtkplus(AutotoolsPackage):
         args = []
         # disable building of gtk-doc files following #9771
         args.append('--disable-gtk-doc-html')
+        args.append("--disable-cups")  # Most sites won't have this library for printers
         true = which('true')
         args.append('GTKDOC_CHECK={0}'.format(true))
         args.append('GTKDOC_CHECK_PATH={0}'.format(true))
