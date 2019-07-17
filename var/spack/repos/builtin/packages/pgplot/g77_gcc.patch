@@ -1,0 +1,11 @@
+--- sys_linux/g77_gcc.conf	1999-07-05 11:10:33.000000000 -0700
++++ sys_linux/g77_gcc_nersc.conf	2019-07-17 10:31:27.526114000 -0700
+@@ -34,7 +34,7 @@
+ # Mandatory.
+ # The FORTRAN compiler to use.
+  
+-   FCOMPL="g77"
++   FCOMPL="gfortran"
+ 
+ # Mandatory.
+ # The FORTRAN compiler flags to use when compiling the pgplot library.
