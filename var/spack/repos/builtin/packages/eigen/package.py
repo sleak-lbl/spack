@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: (Apache-2.0 OR MIT)
 
 from spack import *
-
+from spack.util.module_cmd import load_module
 
 class Eigen(CMakePackage):
     """Eigen is a C++ template library for linear algebra matrices,
@@ -47,6 +47,11 @@ class Eigen(CMakePackage):
     depends_on('gmp', when='+mpfr')
 
     patch('find-ptscotch.patch', when='@3.3.4')
+
+    def flag_handler(self, name, flags):
+        if name == 'ldlibs':
+            flags.append('-lmpich')
+        return (flags, None, None)
 
     def setup_environment(self, spack_env, run_env):
         run_env.prepend_path('CPATH',
