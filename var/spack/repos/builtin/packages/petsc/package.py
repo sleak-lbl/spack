@@ -126,6 +126,18 @@ class Petsc(Package):
     depends_on('python@2.6:2.8', type='build', when='@:3.10.99')
     depends_on('python@2.6:2.8,3.4:', type='build', when='@3.11:')
 
+    depends_on('metis@5:~int64~shared', when='@3.8:+metis~int64~shared')
+    # parmetis
+    depends_on('parmetis~shared', when='+metis+mpi~shared')
+    # hdf5
+    #depends_on('hdf5+mpi+hl+fortran~shared', when='~complex~int64~shared')   
+    #depends_on('hdf5+mpi+hl+fortran~shared', when='+hdf5+mpi~shared')
+    # superlu_dist
+    depends_on('superlu-dist@5.2:5.2.99~int64~shared', when='@3.8:3.9.99+superlu-dist+mpi~int64~shared')
+    # hypre
+    depends_on('hypre@:2.13.99~internal-superlu~int64~shared', when='@:3.8.99+hypre+mpi~complex~int64~shared')   
+
+
     # Other dependencies
     depends_on('metis@5:~int64+real64', when='@:3.7.99+metis~int64+double')
     depends_on('metis@5:~int64', when='@:3.7.99+metis~int64~double')
@@ -137,6 +149,7 @@ class Petsc(Package):
 
     depends_on('hdf5+mpi+hl+fortran', when='+hdf5+mpi')
     depends_on('zlib', when='+hdf5')
+    depends_on('zlib~shared', when='+hdf5~shared')
     depends_on('parmetis', when='+metis+mpi')
     # Hypre does not support complex numbers.
     # Also PETSc prefer to build it without internal superlu, likely due to
@@ -201,7 +214,7 @@ class Petsc(Package):
                 '--with-cxx=%s' % self.spec['mpi'].mpicxx,
                 '--with-fc=%s' % self.spec['mpi'].mpifc,
             ]
-            if self.spec.satisfies('%intel'):
+            if self.spec.satisfies('%intel') and '+shared' in self.spec:
                 # mpiifort needs some help to automatically link
                 # all necessary run-time libraries
                 compiler_opts.append('--FC_LINKER_FLAGS=-lintlc')
@@ -216,6 +229,14 @@ class Petsc(Package):
                    'FFLAGS=%s' % ' '.join(spec.compiler_flags['fflags']),
                    'CXXFLAGS=%s' % ' '.join(spec.compiler_flags['cxxflags'])]
         options.extend(self.mpi_dependent_options())
+        if '+shared' in spec:
+            options.append('--FC_LINKER_FLAGS=-shared-libgcc')
+            options.append('--CC_LINKER_FLAGS=-shared-libgcc')
+            options.append('--CXX_LINKER_FLAGS=-shared-libgcc')
+        else:
+            options.append('--FC_LINKER_FLAGS=-static-libgcc')
+            options.append('--CC_LINKER_FLAGS=-static-libgcc')
+            options.append('--CXX_LINKER_FLAGS=-static-libgcc')
         options.extend([
             '--with-precision=%s' % (
                 'double' if '+double' in spec else 'single'),
