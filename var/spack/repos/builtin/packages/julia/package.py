@@ -17,9 +17,6 @@ class Julia(Package):
     git      = "https://github.com/JuliaLang/julia.git"
 
     version('master', branch='master')
-    version('1.3.0-alpha', sha256='bd5bc6266966bae7504709d3e7a4bc8ee49b07adfd34951354f9875013176e3c')
-    version('1.2.0-rc2',   sha256='22df94f012d5fa1c9be03402f5b7fb742288f97b4b15bd9294f6240797653118')
-    version('1.2.0-rc1',   sha256='e301421b869c6ecea8c3ae06bfdddf67843d16e694973b4958924914249afa46')
     version('1.1.1',       sha256='3c5395dd3419ebb82d57bcc49dc729df3b225b9094e74376f8c649ee35ed79c2')
     version('1.1.0-rc2',   sha256='4be33449752ca4699e1093aa12f14b68727299ae758b6b95a6530a749716d327')
     version('1.1.0-rc1',   sha256='18b584f940e0f515c27b14c3c2bb9f34390fa545ecff76da258a5aa3e98e6f19')
