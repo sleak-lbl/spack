@@ -57,6 +57,7 @@ class Hwloc(AutotoolsPackage):
         default=False,
         description='Enable the Cairo back-end of hwloc\'s lstopo command'
     )
+    variant('netloc', default=False, description="enable netloc")
 
     depends_on('pkgconfig', type='build')
 
@@ -78,7 +79,7 @@ class Hwloc(AutotoolsPackage):
             # (Alternatively, we could require OpenCL as dependency.)
             "--disable-opencl",
         ]
-        if '@2.0.0:' in self.spec:
+        if '@2.0.0:' in self.spec and '+netloc' in self.spec:
             args.append('--enable-netloc')
 
         args.extend(self.enable_or_disable('cairo'))
