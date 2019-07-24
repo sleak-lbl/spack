@@ -18,6 +18,12 @@ class Atlas(Package):
     """
     homepage = "http://math-atlas.sourceforge.net/"
 
+    version('3.11.41', sha256='477d567a8d683e891d786e9e8bb6ad6659daa9ba18e8dd0e2f70b7a54095f8de',
+            url='http://sourceforge.net/projects/math-atlas/files/Developer%20%28unstable%29/3.11.41/atlas3.11.41.tar.bz2')
+
+    version('3.11.40', sha256='83ce80cac75d04f117b3ba7444766fdf0503e485c4ef2bb71703560ed71a3465',
+            url='http://sourceforge.net/projects/math-atlas/files/Developer%20%28unstable%29/3.11.40/atlas3.11.40.tar.bz2')
+
     version('3.11.39', '5f3252fa980f5f060f93edd4669321e2',
             url='http://sourceforge.net/projects/math-atlas/files/Developer%20%28unstable%29/3.11.39/atlas3.11.39.tar.bz2')
 
