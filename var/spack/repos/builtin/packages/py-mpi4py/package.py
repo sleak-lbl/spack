@@ -28,5 +28,10 @@ class PyMpi4py(PythonPackage):
     depends_on('openmpi', when='+nersc') #fails to build using mpich on CLE7
     depends_on('mpi')
     depends_on('py-cython', when='@develop', type='build')
+
     def setup_environment(self, spack_env, run_env):
+        spec = self.spec
         spack.util.module_cmd.module('unload', 'craype-hugepages2M')
+        #spack.util.module_cmd.module('load', 'cray-mpich') 
+    def build_args(self, spec, prefix):
+      return ['--mpicc=%s -shared' % spec['mpi'].mpicc]
