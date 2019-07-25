@@ -133,7 +133,7 @@ class Petsc(Package):
     #depends_on('hdf5+mpi+hl+fortran~shared', when='~complex~int64~shared')   
     #depends_on('hdf5+mpi+hl+fortran~shared', when='+hdf5+mpi~shared')
     # superlu_dist
-    depends_on('superlu-dist@5.2:5.2.99~int64~shared', when='@3.8:3.9.99+superlu-dist+mpi~int64~shared')
+    depends_on('superlu-dist@5.2:5.2.99~int64~shared', when='@3.8:3.8.99+superlu-dist+mpi~int64~shared')
     # hypre
     depends_on('hypre@:2.13.99~internal-superlu~int64~shared', when='@:3.8.99+hypre+mpi~complex~int64~shared')   
 
@@ -171,8 +171,12 @@ class Petsc(Package):
     depends_on('superlu-dist@5.2:5.2.99+int64', when='@3.8:3.9.99+superlu-dist+mpi+int64')
     depends_on('superlu-dist@5.4:5.4.99~int64', when='@3.10:3.10.2+superlu-dist+mpi~int64')
     depends_on('superlu-dist@5.4:5.4.99+int64', when='@3.10:3.10.2+superlu-dist+mpi+int64')
-    depends_on('superlu-dist@6.1:6.1.99~int64', when='@3.10.3:3.11.99+superlu-dist+mpi~int64')
-    depends_on('superlu-dist@6.1:6.1.99+int64', when='@3.10.3:3.11.99+superlu-dist+mpi+int64')
+    #depends_on('superlu-dist@6.1:6.1.99~int64', when='@3.10.3:3.11.99+superlu-dist+mpi~int64')
+    #depends_on('superlu-dist@6.1:6.1.99+int64', when='@3.10.3:3.11.99+superlu-dist+mpi+int64')
+    depends_on('superlu-dist@6.1.1~int64+shared', when='@3.10.3:+superlu-dist+mpi~int64+shared')
+    depends_on('superlu-dist@6.1.1+int64+shared', when='@3.10.3:+superlu-dist+mpi+int64+shared')
+    depends_on('superlu-dist@6.1.1~int64~shared', when='@3.10.3:+superlu-dist+mpi~int64~shared')
+    depends_on('superlu-dist@6.1.1+int64~shared', when='@3.10.3:+superlu-dist+mpi+int64~shared')
     depends_on('superlu-dist@xsdk-0.2.0~int64', when='@xsdk-0.2.0+superlu-dist+mpi~int64')
     depends_on('superlu-dist@xsdk-0.2.0+int64', when='@xsdk-0.2.0+superlu-dist+mpi+int64')
     depends_on('superlu-dist@develop~int64', when='@develop+superlu-dist+mpi~int64')
