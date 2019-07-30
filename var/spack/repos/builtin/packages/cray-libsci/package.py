@@ -1,80 +1,106 @@
-##############################################################################
-# Copyright (c) 2013-2016, Lawrence Livermore National Security, LLC.
-# Produced at the Lawrence Livermore National Laboratory.
+# Copyright 2013-2019 Lawrence Livermore National Security, LLC and other
+# Spack Project Developers. See the top-level COPYRIGHT file for details.
 #
-# This file is part of Spack.
-# Created by Todd Gamblin, tgamblin@llnl.gov, All rights reserved.
-# LLNL-CODE-647188
-#
-# For details, see https://github.com/llnl/spack
-# Please also see the NOTICE and LICENSE files for our notice and the LGPL.
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License (as
-# published by the Free Software Foundation) version 2.1, February 1999.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the IMPLIED WARRANTY OF
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the terms and
-# conditions of the GNU Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public
-# License along with this program; if not, write to the Free Software
-# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
-##############################################################################
-#
-# This is a template package file for Spack.  We've put "FIXME"
-# next to all the things you'll want to change. Once you've handled
-# them, you can save this file and test your package like this:
-#
-#     spack install cray-libsci
-#
-# You can edit this file again by typing:
-#
-#     spack edit cray-libsci
-#
-# See the Spack documentation for more information on packaging.
-# If you submit this package back to Spack as a pull request,
-# please first remove this boilerplate and all FIXME comments.
-#
+# SPDX-License-Identifier: (Apache-2.0 OR MIT)
+
+import os
+
 from spack import *
-from spack.concretize import NoBuildError
-from spack.util.module_cmd import load_module
-from llnl.util.filesystem import LibraryList
+from spack.util.module_cmd import load_module, module
+from spack.util.prefix import Prefix
+
 
 class CrayLibsci(Package):
     """The Cray Scientific Libraries package, LibSci, is a collection of
     numerical routines optimized for best performance on Cray systems."""
 
-    homepage = "http://www.nersc.gov/users/software/programming-libraries/math-libraries/libsci"
-    url      = "http://www.nersc.gov/users/software/programming-libraries/math-libraries/libsci"
+    homepage = "https://docs.nersc.gov/programming/libraries/libsci/"
+    url = "https://docs.nersc.gov/programming/libraries/libsci/"
+
+    version('0.0.0', '')
 
     variant("shared", default=True, description="enable shared libs")
-
-    version('1.2.3', '0123456789abcdef0123456789abcdef')
+    variant("openmp", default=False, description="link with openmp")
+    variant("mpi", default=False, description="link with mpi libs")
 
     provides("blas")
     provides("lapack")
     provides("scalapack")
 
+    canonical_names = {
+        'gcc': 'GNU',
+        'cce': 'CRAY',
+        'intel': 'INTEL',
+    }
+
+    @property
+    def fetcher(self):
+        raise InstallError("""This package is intended to be a placeholder for Cray's
+libsci, usually provided via the module system as 'cray-libsci'.
+Add to your packages.yaml:
+    packages:
+        cray-libsci:
+            buildable: false
+            modules:
+                cray-libsci+mpi+openmp@18.07.1: cray-libsci/18.07.1
+                cray-libsci+mpi~openmp@18.07.1: cray-libsci/18.07.1
+                cray-libsci~mpi+openmp@18.07.1: cray-libsci/18.07.1
+                cray-libsci~mpi~openmp@18.07.1: cray-libsci/18.07.1
+Replace the version numbers with the ones matching the module(s).
+        """)
+
+    @property
+    def modname(self):
+        return "cray-libsci/{0}".format(self.version)
+
+    @property
+    def prefix(self):
+        cname = self.canonical_names[self.compiler.name]
+        libsci_module = module("show", self.modname).splitlines()
+
+        base_dir = None
+        lib_ver = None
+
+        for line in libsci_module:
+            if "CRAY_LIBSCI_BASE_DIR" in line:
+                base_dir = line.split()[-1]  # fails if dir contains ws
+
+            if "PE_LIBSCI_GENCOMPS_{0}_x86_64".format(cname) in line:
+                # the line looks like: PE_LIBSCI_GENCOMPS_GNU_x86_64 71 61 51
+                # check for matching major version match
+                lib_ver = [v for v in line.split()[2:]
+                           if v[0] == str(self.compiler.version[0])][0]
+
+        if base_dir is None or lib_ver is None:
+            return Prefix()
+
+        return Prefix(os.path.join(
+            base_dir,
+            cname,
+            lib_ver,
+            str(self.architecture.target)))
+
     @property
     def blas_libs(self):
-        """Return the path to the library"""
         shared = True if "+shared" in self.spec else False
         compiler = self.spec.compiler.name
 
-        if compiler == "gcc":
-            compiler = "gnu"
-        elif compiler == "cce":
-            compiler = "cray"
+        if "+openmp" in self.spec and "+mpi" in self.spec:
+            lib = "libsci_{0}_mpi_mp"
+        elif "+openmp" in self.spec:
+            lib = "libsci_{0}_mp"
+        elif "+mpi" in self.spec:
+            lib = "libsci_{0}_mpi"
+        else:
+            lib = "libsci_{0}"
 
-        libraries = ["libsci_%s" % (compiler),
-                     "libsci_%s_mp" % (compiler),
-                     "libsci_%s_mpi" % (compiler),
-                     "libsci_%s_mpi_mp" % (compiler)]
+        libname = lib.format(self.canonical_names[compiler].lower())
 
-        return find_libraries(libraries, root=self.prefix.lib, shared=shared,
-                recursive=False)
+        return find_libraries(
+            libname,
+            root=self.prefix.lib,
+            shared=shared,
+            recursive=False)
 
     @property
     def lapack_libs(self):
@@ -86,7 +112,9 @@ class CrayLibsci(Package):
 
     def setup_dependent_environment(self, spack_env, run_env, dependent_spec):
         """ Load the module into the environment for dependents """
-        load_module('cray-libsci')
+        version = self.version
+        mod = 'cray-libsci/{0}'.format(version)
+        load_module(mod)
 
     def install(self, spec, prefix):
-        raise NoBuildError(spec)
+        pass
