@@ -14,6 +14,7 @@ class Pcre(AutotoolsPackage):
     homepage = "http://www.pcre.org"
     url      = "https://ftp.pcre.org/pub/pcre/pcre-8.42.tar.bz2"
 
+    version('8.43', sha256='91e762520003013834ac1adb4a938d53b22a216341c061b0cf05603b290faf6b')
     version('8.42', '085b6aa253e0f91cae70b3cdbe8c1ac2')
     version('8.41', 'c160d22723b1670447341b08c58981c1')
     version('8.40', '41a842bf7dcecd6634219336e2167d1d')
