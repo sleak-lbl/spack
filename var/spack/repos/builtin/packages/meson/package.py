@@ -14,6 +14,11 @@ class Meson(PythonPackage):
     homepage = "http://mesonbuild.com/"
     url      = "https://github.com/mesonbuild/meson/archive/0.49.0.tar.gz"
 
+    version('0.51.1', sha256='92cf7f095fe2d1c3f23824805480c29eaa381e71ae0a90ac85949d1e10f9041c')
+    version('0.51.0', sha256='ec1e3942215a858d82c3d2e095d18adcf1ede94a34144662643d88db4dcb5263')
+    version('0.50.1', sha256='e9f52047f26636ee512439c01755064656db5faecdd68e9af09dc772d829198c')
+    version('0.50.0', sha256='a2f425cb9133c43b35d74ee68ae55a53f1baa727a3fcddf1c664f46245781a05')
+    version('0.49.2', sha256='f0aebfa97ed4fb5d2a6d60ac36d0f7173c5797c545299674d971c0c8269efd5c')
     version('0.49.1', sha256='a944e7f25a2bc8e4ba3502ab5835d8a8b8f2530415c9d6fcffb53e0abaea2ced')
     version('0.49.0', sha256='11bc959e7173e714e4a4e85dd2bd9d0149b0a51c8ba82d5f44cc63735f603c74')
     version('0.42.0', '9e26bf154ca439b78b1b9366c8a89437')
