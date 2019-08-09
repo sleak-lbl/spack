@@ -19,12 +19,8 @@ class Glib(AutotoolsPackage):
     """
 
     homepage = "https://developer.gnome.org/glib/"
-    url      = "https://ftp.gnome.org/pub/gnome/sources/glib/glib-2.61.1.tar.xz"
+    url      = "https://ftp.gnome.org/pub/gnome/sources/glib/glib-2.56.3.tar.xz"
 
-    #version('2.61.2', sha256='99c6bcfb8600562d519222a429e2dc0af469b2006b8080a9a1f438456071c0b5')
-    version('2.61.1', sha256='f8d827955f0d8e197ff5c2105dd6ac4f6b63d15cd021eb1de66534c92a762161')
-    version('2.61.0', sha256='e6f794768e67060f58166234bca5dcdae4a9961f70076a5937c73cb578f2f3e7')
-    version('2.60.6', sha256='ff8fab8d8deaa4fd0536c90f90d9769a09071779c7e6183907f6855645bffb6c')
     version('2.56.3', 'a9a4c5b4c81b6c75bc140bdf5e32120ef3ce841b7413214ecf5f987acec74cb2')
     version('2.56.2', 'd64abd16813501c956c4e123ae79f47f1b58de573df9fdd3b0795f1e2c1aa789')
     version('2.56.1', '40ef3f44f2c651c7a31aedee44259809b6f03d3d20be44545cd7d177221c0b8d')
