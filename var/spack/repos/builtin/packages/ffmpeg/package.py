@@ -23,8 +23,13 @@ class Ffmpeg(AutotoolsPackage):
     variant('aom', default=False,
             description='build Alliance for Open Media libraries')
 
+    variant('x264', default=False,
+            description="Enable libx264 codec support")
+
+
     depends_on('yasm@1.2.0:')
     depends_on('aom', when='+aom')
+    depends_on('libx264', when='+x264')
 
     def configure_args(self):
         spec = self.spec
@@ -37,5 +42,11 @@ class Ffmpeg(AutotoolsPackage):
             config_args.append('--enable-libaom')
         else:
             config_args.append('--disable-libaom')
+
+        if "+x264" in spec:
+            config_args.extend(['--enable-gpl',
+                                '--enable-libx264',
+                                '--enable-encoder=libx264'
+                                ])
 
         return config_args
