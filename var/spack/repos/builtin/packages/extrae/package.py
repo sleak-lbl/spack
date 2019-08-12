@@ -35,6 +35,15 @@ class Extrae(Package):
        OpenMP, CUDA, OpenCL, pthread, OmpSs"""
     homepage = "https://tools.bsc.es/extrae"
     url      = "https://ftp.tools.bsc.es/extrae/extrae-3.4.1-src.tar.bz2"
+    version('3.7.1', sha256='95810b057f95e91bfc89813eb8bd320dfe40614fc8e98c63d95c5101c56dd213')
+    version('3.7.0', sha256='1baf31bb83e44cba600a0a947634a95b8d459518fc698bebfa5816522f5d1be6')
+    version('3.6.1', sha256='c44d73283251c5141a9898b9af025a626bef753da3f70527f8f237a29b468bd5')
+    version('3.6.0', sha256='48a5210b8eab3a11d26c508ab9c627ec80a28dd35299d77cf6c9a1a70822f31c')
+    version('3.5.4', sha256='e767397f56c36b89dcc789c78404716597444f6633763449916738d85589b1f0')
+    version('3.5.2', sha256='3476fab30747d675920a318bf0c00da8a10094b52aeb0f691b796a580a694893')
+    version('3.5.1', sha256='367b7674b85a0c59b32eb54a6c836274b11912ecfce9d7bdc39ffceaa439d898')
+    version('3.5.0', sha256='e78446ab96af90cc80932bc77e13cc86b2cc81bc9c2bbef3d806e79dc45b9208')
+    version('3.4.3', sha256='feede830f6058e0e262d27b6452b545100498f7648c38a4f15de77bb4df4de01')
     version('3.4.1', '69001f5cfac46e445d61eeb567bc8844')
 
     depends_on("mpi")
