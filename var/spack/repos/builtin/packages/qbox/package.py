@@ -14,6 +14,10 @@ class Qbox(MakefilePackage):
     homepage = "http://qboxcode.org/"
     url      = "http://qboxcode.org/download/qbox-1.63.7.tgz"
 
+    version('1.67.4', sha256='82b3dffa3977e74d51e9b84766bbb5ffafd17e2139e600f9e687d2b0a9126de7')
+    version('1.67.3', sha256='5b15a2ab91deab50854c276981e7f5764ddfbca48d26afa1cb0d888dc022b50a')
+    version('1.66.2', sha256='159e7e494b8c318cc50fe5a827783073d8c3449b1081dbba0ee28f77053cc608')
+    version('1.64.0', sha256='3dfa3b172cbd3d20ef933a33331928dfbbd03c545b4a13d37b2fac23ba2456b8')
     version('1.63.7', '6b0cf5656f816a1a59e22b268387af33')
     version('1.63.5', 'da3161ab6a455793f2133dd03c04077c')
     version('1.63.4', '8596f32c8fb7e7baa96571c655aaee07')
@@ -40,6 +44,7 @@ class Qbox(MakefilePackage):
 
     variant('mkl', default=False, description="Use MKL for blas, scalapack and fftw")
     variant('openmp', default=False, description="Build with OpenMP support")
+    variant('static', default=False, description='build with static linking')
 
     depends_on('mpi')
     depends_on('mkl', when='+mkl') #sjl: how do i get the mkl fftw headers into the flags list?
@@ -48,6 +53,7 @@ class Qbox(MakefilePackage):
     depends_on('fftw@3', when='-mkl')
     # depends_on xerces_c@2.8.0 or xerces_c@3 
     depends_on('xerces-c@2.8.0:3')
+    depends_on('libiconv+static', when='+static') 
 
     build_directory = 'src'
 
@@ -75,24 +81,25 @@ class Qbox(MakefilePackage):
             else:
                 dflags += ['USE_FFTW3_2D']
 
+            ldflags += ['-liconv']
+
             if 'xerces-c@3' in spec:
                 dflags += ['XERCESC_3']
                 
+            if '+static' in spec:
+                flags += ['-static']
+
             if '+mkl' in spec:
-                # why can't I just check for arch=cray?
-                if 'arch=cray-cnl6-haswell' in spec or 'arch=cray-cnl6-ivybridge' in spec:
-                    # the "static" here seems inelegant, shouldn't it happen 
-                    # automatically (at link time as well as compile time)?
-                    flags += ['-static', '-mkl']
                 # how to add -I${MKLROOT}/include/fftw ?
                 # I suspect it is something like:
-                flags += [ '-I{0}/fftw'.format(spec['mkl'].prefix.include) ]
+                flags += [ '-mkl', '-I{0}/fftw'.format(spec['mkl'].prefix.include) ]
                 dflags += ['USE_FFTW3MKL']
-                # this might only be for cray, with static linking:
-                libdir=spec['mkl'].prefix.lib + '/intel64'
-                ldflags += ['-mkl', '-Wl,--start-group', libdir+'/libmkl_scalapack_lp64.a',
-                            libdir+'/libmkl_core.a', libdir+'/libmkl_intel_thread.a',
-                            libdir+'/libmkl_blacs_intelmpi_lp64.a', '-Wl,--end-group'] 
+                if '+static' in spec:
+                    # this might only be for cray, with static linking:
+                    libdir=spec['mkl'].prefix.lib + '/intel64'
+                    ldflags += ['-mkl', '-Wl,--start-group', libdir+'/libmkl_scalapack_lp64.a',
+                                libdir+'/libmkl_core.a', libdir+'/libmkl_intel_thread.a',
+                                libdir+'/libmkl_blacs_intelmpi_lp64.a', '-Wl,--end-group'] 
             else:
                 libs += spec['fftw'].libs + spec['scalapack'].libs + spec['blas'].libs
 
