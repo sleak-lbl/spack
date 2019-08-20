@@ -19,6 +19,11 @@ class ArmForge(Package):
     #       versions (and checksums) based on the target platform shows up
 
     version(
+        "19.1.2-Suse-15.0-x86_64",
+        sha256='98006bc378692f9b02c97da6f462c88b680a74654077af203b38801605b49f26',
+        url="http://content.allinea.com/downloads/arm-forge-19.1.2-Suse-15.0-x86_64.tar",
+    )
+    version(
         "19.1.1-Suse-15.0-x86_64",
         sha256="3885ec77b8956285b058890dbbb0b99db433d2e7ca08182b5e93829740ae9cc9",
         url="http://content.allinea.com/downloads/arm-forge-19.1.1-Suse-15.0-x86_64.tar",
