@@ -20,10 +20,6 @@ class Pgi(Compiler):
     # Subclasses use possible names of Fortran 90 compiler
     fc_names = ['pgfortran', 'pgf95', 'pgf90']
 
-    # LLVM-enabled PGI compilers add a '-llvm' suffix:
-    #   pgcc-llvm, pgc++llvm, pgfortran-llvm
-    suffixes = ['-?llvm']
-
     # Named wrapper links within build_env_path
     link_paths = {'cc': 'pgi/pgcc',
                   'cxx': 'pgi/pgc++',
@@ -35,6 +31,10 @@ class Pgi(Compiler):
 
     version_argument = '-V'
     version_regex = r'pg[^ ]* ([0-9.]+)-[0-9]+ (LLVM )?[^ ]+ target on '
+
+    @classmethod
+    def verbose_flag(cls):
+        return "-v"
 
     @property
     def openmp_flag(self):

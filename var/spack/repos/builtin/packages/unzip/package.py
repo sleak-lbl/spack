@@ -14,7 +14,12 @@ class Unzip(MakefilePackage):
 
     version('6.0', '62b490407489521db863b523a7f86375')
 
-    make_args = ['-f', 'unix/Makefile']
+    # The Cray cc wrapper doesn't handle the '-s' flag (strip) cleanly.
+    @when('platform=cray')
+    def patch(self):
+        filter_file(r'^LFLAGS2=.*', 'LFLAGS2=', join_path('unix', 'configure'))
+
+    make_args = ['-f', join_path('unix', 'Makefile')]
     build_targets = make_args + ['generic']
 
     def url_for_version(self, version):

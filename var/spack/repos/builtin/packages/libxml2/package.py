@@ -48,7 +48,8 @@ class Libxml2(AutotoolsPackage):
     def configure_args(self):
         spec = self.spec
 
-        args = ['--with-lzma={0}'.format(spec['xz'].prefix)]
+        args = ['--with-lzma={0}'.format(spec['xz'].prefix),
+                '--with-iconv={0}'.format(spec['libiconv'].prefix)]
 
         if '+python' in spec:
             args.extend([

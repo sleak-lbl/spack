@@ -28,6 +28,19 @@ class InstallRootStringException(spack.error.SpackError):
             (file_path, root_path))
 
 
+class BinaryStringReplacementException(spack.error.SpackError):
+    """
+    Raised when the size of the file changes after binary path substitution.
+    """
+
+    def __init__(self, file_path, old_len, new_len):
+        super(BinaryStringReplacementException, self).__init__(
+            "Doing a binary string replacement in %s failed.\n"
+            "The size of the file changed from %s to %s\n"
+            "when it should have remanined the same." %
+            (file_path, old_len, new_len))
+
+
 def get_patchelf():
     """
     Builds and installs spack patchelf package on linux platforms
@@ -289,6 +302,34 @@ def needs_text_relocation(m_type, m_subtype):
     return (m_type == "text")
 
 
+def replace_prefix_bin(path_name, old_dir, new_dir):
+    """
+    Attempt to replace old install prefix with new install prefix
+    in binary files by replacing with null terminated string
+    that is the same length unless the old path is shorter
+    """
+
+    def replace(match):
+        occurances = match.group().count(old_dir)
+        padding = (len(old_dir) - len(new_dir)) * occurances
+        if padding < 0:
+            return data
+        return match.group().replace(old_dir, new_dir) + b'\0' * padding
+
+    with open(path_name, 'rb+') as f:
+        data = f.read()
+        f.seek(0)
+        original_data_len = len(data)
+        pat = re.compile(re.escape(old_dir) + b'([^\0]*?)\0')
+        ndata = pat.sub(replace, data)
+        new_data_len = len(ndata)
+        if not new_data_len == original_data_len:
+            raise BinaryStringReplacementException(
+                path_name, original_data_len, new_data_len)
+        f.write(data)
+        f.truncate()
+
+
 def relocate_binary(path_names, old_dir, new_dir, allow_root):
     """
     Change old_dir to new_dir in RPATHs of elf or mach-o files
@@ -317,11 +358,13 @@ def relocate_binary(path_names, old_dir, new_dir, allow_root):
             modify_macho_object(path_name,
                                 rpaths, deps, idpath,
                                 new_rpaths, new_deps, new_idpath)
-            if (not allow_root and
-                old_dir != new_dir and
-                    not file_is_relocatable(path_name)):
-                raise InstallRootStringException(path_name, old_dir)
-
+            if len(new_dir) <= len(old_dir):
+                replace_prefix_bin(path_name, old_dir, new_dir)
+            else:
+                tty.warn('Cannot do a binary string replacement'
+                         ' with padding for %s'
+                         ' because %s is longer than %s' %
+                         (path_name, new_dir, old_dir))
     elif platform.system() == 'Linux':
         for path_name in path_names:
             orig_rpaths = get_existing_elf_rpaths(path_name)
@@ -333,10 +376,13 @@ def relocate_binary(path_names, old_dir, new_dir, allow_root):
                 new_rpaths = substitute_rpath(n_rpaths,
                                               old_dir, new_dir)
                 modify_elf_object(path_name, new_rpaths)
-                if (not allow_root and
-                    old_dir != new_dir and
-                        not file_is_relocatable(path_name)):
-                    raise InstallRootStringException(path_name, old_dir)
+                if len(new_dir) <= len(old_dir):
+                    replace_prefix_bin(path_name, old_dir, new_dir)
+                else:
+                    tty.warn('Cannot do a binary string replacement'
+                             ' with padding for %s'
+                             ' because %s is longer than %s.' %
+                             (path_name, new_dir, old_dir))
     else:
         tty.die("Relocation not implemented for %s" % platform.system())
 

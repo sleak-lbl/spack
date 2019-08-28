@@ -91,3 +91,11 @@ class Gettext(AutotoolsPackage):
             config_args.append("--disable-shared")
 
         return config_args
+
+    @property
+    def libs(self):
+        return find_libraries(
+            ["libasprintf", "libgettextlib", "libgettextpo", "libgettextsrc",
+                "libintl"],
+            root=self.prefix, recursive=True
+        )

@@ -13,7 +13,8 @@ in order to build it.  They need to define the following methods:
         Apply a checksum to the downloaded source code, e.g. for an archive.
         May not do anything if the fetch method was safe to begin with.
     * expand()
-        Expand (e.g., an archive) downloaded file to source.
+        Expand (e.g., an archive) downloaded file to source, with the
+        standard stage source path as the destination directory.
     * reset()
         Restore original state of downloaded code.  Used by clean commands.
         This may just remove the expanded source and re-expand an archive,
@@ -31,7 +32,8 @@ from functools import wraps
 from six import string_types, with_metaclass
 
 import llnl.util.tty as tty
-from llnl.util.filesystem import working_dir, mkdirp
+from llnl.util.filesystem import (
+    working_dir, mkdirp, temp_rename, temp_cwd, get_single_file)
 
 import spack.config
 import spack.error
@@ -88,16 +90,23 @@ class FetchStrategy(with_metaclass(FSMeta, object)):
     #: classes have multiple ``url_attrs`` at the top-level.
     optional_attrs = []  # optional attributes in version() args.
 
-    def __init__(self):
+    def __init__(self, **kwargs):
         # The stage is initialized late, so that fetch strategies can be
         # constructed at package construction time.  This is where things
         # will be fetched.
         self.stage = None
+        # Enable or disable caching for this strategy based on
+        # 'no_cache' option from version directive.
+        self._cache_enabled = not kwargs.pop('no_cache', False)
 
     def set_stage(self, stage):
         """This is called by Stage before any of the fetching
            methods are called on the stage."""
         self.stage = stage
+
+    @property
+    def cache_enabled(self):
+        return self._cache_enabled
 
     # Subclasses need to implement these methods
     def fetch(self):
@@ -111,7 +120,7 @@ class FetchStrategy(with_metaclass(FSMeta, object)):
         """Checksum the archive fetched by this FetchStrategy."""
 
     def expand(self):
-        """Expand the downloaded archive."""
+        """Expand the downloaded archive into the stage source path."""
 
     def reset(self):
         """Revert to freshly downloaded state.
@@ -156,6 +165,51 @@ class FetchStrategy(with_metaclass(FSMeta, object)):
         return cls.url_attr in args
 
 
+class BundleFetchStrategy(FetchStrategy):
+    """
+    Fetch strategy associated with bundle, or no-code, packages.
+
+    Having a basic fetch strategy is a requirement for executing post-install
+    hooks.  Consequently, this class provides the API but does little more
+    than log messages.
+
+    TODO: Remove this class by refactoring resource handling and the link
+    between composite stages and composite fetch strategies (see #11981).
+    """
+    #: This is a concrete fetch strategy for no-code packages.
+    enabled = True
+
+    #: There is no associated URL keyword in ``version()`` for no-code
+    #: packages but this property is required for some strategy-related
+    #: functions (e.g., check_pkg_attributes).
+    url_attr = ''
+
+    def fetch(self):
+        tty.msg("No code to fetch.")
+        return True
+
+    def check(self):
+        tty.msg("No code to check.")
+
+    def expand(self):
+        tty.msg("No archive to expand.")
+
+    def reset(self):
+        tty.msg("No code to reset.")
+
+    def archive(self, destination):
+        tty.msg("No code to archive.")
+
+    @property
+    def cachable(self):
+        tty.msg("No code to cache.")
+        return False
+
+    def source_id(self):
+        tty.msg("No code to be uniquely identified.")
+        return ''
+
+
 @pattern.composite(interface=FetchStrategy)
 class FetchStrategyComposite(object):
     """Composite for a FetchStrategy object.
@@ -172,8 +226,10 @@ class FetchStrategyComposite(object):
 
 
 class URLFetchStrategy(FetchStrategy):
-    """FetchStrategy that pulls source code from a URL for an archive,
-       checks the archive against a checksum,and decompresses the archive.
+    """
+    FetchStrategy that pulls source code from a URL for an archive, check the
+    archive against a checksum, and decompresses the archive.  The destination
+    for the resulting file(s) is the standard stage source path.
     """
     enabled = True
     url_attr = 'url'
@@ -183,7 +239,7 @@ class URLFetchStrategy(FetchStrategy):
     optional_attrs = list(crypto.hashes.keys()) + ['checksum']
 
     def __init__(self, url=None, checksum=None, **kwargs):
-        super(URLFetchStrategy, self).__init__()
+        super(URLFetchStrategy, self).__init__(**kwargs)
 
         # Prefer values in kwargs to the positionals.
         self.url = kwargs.get('url', url)
@@ -316,7 +372,7 @@ class URLFetchStrategy(FetchStrategy):
 
     @property
     def cachable(self):
-        return bool(self.digest)
+        return self._cache_enabled and bool(self.digest)
 
     @_needs_stage
     def expand(self):
@@ -371,6 +427,7 @@ class URLFetchStrategy(FetchStrategy):
         if len(non_hidden) == 1:
             src = os.path.join(tarball_container, non_hidden[0])
             if os.path.isdir(src):
+                self.stage.srcdir = non_hidden[0]
                 shutil.move(src, self.stage.source_path)
                 if len(files) > 1:
                     files.remove(non_hidden[0])
@@ -485,7 +542,7 @@ class VCSFetchStrategy(FetchStrategy):
     """
 
     def __init__(self, **kwargs):
-        super(VCSFetchStrategy, self).__init__()
+        super(VCSFetchStrategy, self).__init__(**kwargs)
 
         # Set a URL based on the type of fetch strategy.
         self.url = kwargs.get(self.url_attr, None)
@@ -520,7 +577,16 @@ class VCSFetchStrategy(FetchStrategy):
                 tar.add_default_arg('--exclude=%s' % p)
 
         with working_dir(self.stage.path):
-            tar('-czf', destination, os.path.basename(self.stage.source_path))
+            if self.stage.srcdir:
+                # Here we create an archive with the default repository name.
+                # The 'tar' command has options for changing the name of a
+                # directory that is included in the archive, but they differ
+                # based on OS, so we temporarily rename the repo
+                with temp_rename(self.stage.source_path, self.stage.srcdir):
+                    tar('-czf', destination, self.stage.srcdir)
+            else:
+                tar('-czf', destination,
+                    os.path.basename(self.stage.source_path))
 
     def __str__(self):
         return "VCS: %s" % self.url
@@ -537,7 +603,10 @@ class GoFetchStrategy(VCSFetchStrategy):
        version('name',
                go='github.com/monochromegane/the_platinum_searcher/...')
 
-    Go get does not natively support versions, they can be faked with git
+    Go get does not natively support versions, they can be faked with git.
+
+    The fetched source will be moved to the standard stage sourcepath directory
+    during the expand step.
     """
     enabled = True
     url_attr = 'go'
@@ -614,10 +683,12 @@ class GitFetchStrategy(VCSFetchStrategy):
                       repository's default branch)
         * ``tag``: Particular tag to check out
         * ``commit``: Particular commit hash in the repo
+
+    Repositories are cloned into the standard stage source path directory.
     """
     enabled = True
     url_attr = 'git'
-    optional_attrs = ['tag', 'branch', 'commit', 'submodules']
+    optional_attrs = ['tag', 'branch', 'commit', 'submodules', 'get_full_repo']
 
     def __init__(self, **kwargs):
         # Discards the keywords in kwargs that may conflict with the next call
@@ -628,6 +699,7 @@ class GitFetchStrategy(VCSFetchStrategy):
 
         self._git = None
         self.submodules = kwargs.get('submodules', False)
+        self.get_full_repo = kwargs.get('get_full_repo', False)
 
     @property
     def git_version(self):
@@ -648,7 +720,7 @@ class GitFetchStrategy(VCSFetchStrategy):
 
     @property
     def cachable(self):
-        return bool(self.commit or self.tag)
+        return self._cache_enabled and bool(self.commit or self.tag)
 
     def source_id(self):
         return self.commit or self.tag
@@ -684,16 +756,22 @@ class GitFetchStrategy(VCSFetchStrategy):
         if self.commit:
             # Need to do a regular clone and check out everything if
             # they asked for a particular commit.
-            args = ['clone', self.url, self.stage.source_path]
-            if not spack.config.get('config:debug'):
-                args.insert(1, '--quiet')
-            git(*args)
+            debug = spack.config.get('config:debug')
+
+            clone_args = ['clone', self.url]
+            if not debug:
+                clone_args.insert(1, '--quiet')
+            with temp_cwd():
+                git(*clone_args)
+                repo_name = get_single_file('.')
+                self.stage.srcdir = repo_name
+                shutil.move(repo_name, self.stage.source_path)
 
             with working_dir(self.stage.source_path):
-                args = ['checkout', self.commit]
-                if not spack.config.get('config:debug'):
-                    args.insert(1, '--quiet')
-                git(*args)
+                checkout_args = ['checkout', self.commit]
+                if not debug:
+                    checkout_args.insert(1, '--quiet')
+                git(*checkout_args)
 
         else:
             # Can be more efficient if not checking out a specific commit.
@@ -709,24 +787,26 @@ class GitFetchStrategy(VCSFetchStrategy):
 
             # Try to be efficient if we're using a new enough git.
             # This checks out only one branch's history
-            if self.git_version > ver('1.7.10'):
-                args.append('--single-branch')
+            if self.git_version >= ver('1.7.10'):
+                if self.get_full_repo:
+                    args.append('--no-single-branch')
+                else:
+                    args.append('--single-branch')
 
-            cloned = False
-            # Yet more efficiency, only download a 1-commit deep tree
-            if self.git_version >= ver('1.7.1'):
-                try:
-                    git(*(args + ['--depth', '1', self.url,
-                                  self.stage.source_path]))
-                    cloned = True
-                except spack.error.SpackError as e:
-                    # This will fail with the dumb HTTP transport
-                    # continue and try without depth, cleanup first
-                    tty.debug(e)
+            with temp_cwd():
+                # Yet more efficiency: only download a 1-commit deep
+                # tree, if the in-use git and protocol permit it.
+                if (not self.get_full_repo) and \
+                   self.git_version >= ver('1.7.1') and \
+                   self.protocol_supports_shallow_clone():
+                    args.extend(['--depth', '1'])
 
-            if not cloned:
-                args.extend([self.url, self.stage.source_path])
+                args.extend([self.url])
                 git(*args)
+
+                repo_name = get_single_file('.')
+                self.stage.srcdir = repo_name
+                shutil.move(repo_name, self.stage.source_path)
 
             with working_dir(self.stage.source_path):
                 # For tags, be conservative and check them out AFTER
@@ -768,6 +848,13 @@ class GitFetchStrategy(VCSFetchStrategy):
             self.git(*co_args)
             self.git(*clean_args)
 
+    def protocol_supports_shallow_clone(self):
+        """Shallow clone operations (--depth #) are not supported by the basic
+        HTTP protocol or by no-protocol file specifications.
+        Use (e.g.) https:// or file:// instead."""
+        return not (self.url.startswith('http://') or
+                    self.url.startswith('/'))
+
     def __str__(self):
         return '[git] {0}'.format(self._repo_info())
 
@@ -783,6 +870,8 @@ class SvnFetchStrategy(VCSFetchStrategy):
 
            version('name', svn='http://www.example.com/svn/trunk',
                    revision='1641')
+
+    Repositories are checked out into the standard stage source path directory.
     """
     enabled = True
     url_attr = 'svn'
@@ -807,7 +896,7 @@ class SvnFetchStrategy(VCSFetchStrategy):
 
     @property
     def cachable(self):
-        return bool(self.revision)
+        return self._cache_enabled and bool(self.revision)
 
     def source_id(self):
         return self.revision
@@ -828,8 +917,13 @@ class SvnFetchStrategy(VCSFetchStrategy):
         args = ['checkout', '--force', '--quiet']
         if self.revision:
             args += ['-r', self.revision]
-        args.extend([self.url, self.stage.source_path])
-        self.svn(*args)
+        args.extend([self.url])
+
+        with temp_cwd():
+            self.svn(*args)
+            repo_name = get_single_file('.')
+            self.stage.srcdir = repo_name
+            shutil.move(repo_name, self.stage.source_path)
 
     def _remove_untracked_files(self):
         """Removes untracked files in an svn repository."""
@@ -877,6 +971,8 @@ class HgFetchStrategy(VCSFetchStrategy):
     discouraged.
 
         * ``revision``: Particular revision, branch, or tag.
+
+    Repositories are cloned into the standard stage source path directory.
     """
     enabled = True
     url_attr = 'hg'
@@ -908,7 +1004,7 @@ class HgFetchStrategy(VCSFetchStrategy):
 
     @property
     def cachable(self):
-        return bool(self.revision)
+        return self._cache_enabled and bool(self.revision)
 
     def source_id(self):
         return self.revision
@@ -937,8 +1033,13 @@ class HgFetchStrategy(VCSFetchStrategy):
         if self.revision:
             args.extend(['-r', self.revision])
 
-        args.extend([self.url, self.stage.source_path])
-        self.hg(*args)
+        args.extend([self.url])
+
+        with temp_cwd():
+            self.hg(*args)
+            repo_name = get_single_file('.')
+            self.stage.srcdir = repo_name
+            shutil.move(repo_name, self.stage.source_path)
 
     def archive(self, destination):
         super(HgFetchStrategy, self).archive(destination, exclude='.hg')
@@ -1022,7 +1123,9 @@ def _check_version_attributes(fetcher, pkg, version):
     all_optionals = set(a for s in all_strategies for a in s.optional_attrs)
 
     args = pkg.versions[version]
-    extra = set(args) - set(fetcher.optional_attrs) - set([fetcher.url_attr])
+    extra\
+        = set(args) - set(fetcher.optional_attrs) - \
+        set([fetcher.url_attr, 'no_cache'])
     extra.intersection_update(all_optionals)
 
     if extra:
@@ -1059,6 +1162,12 @@ def _from_merged_attrs(fetcher, pkg, version):
 def for_package_version(pkg, version):
     """Determine a fetch strategy based on the arguments supplied to
        version() in the package description."""
+
+    # No-code packages have a custom fetch strategy to work around issues
+    # with resource staging.
+    if not pkg.has_code:
+        return BundleFetchStrategy()
+
     check_pkg_attributes(pkg)
 
     if not isinstance(version, Version):
@@ -1101,6 +1210,7 @@ def from_list_url(pkg):
     """If a package provides a URL which lists URLs for resources by
        version, this can can create a fetcher for a URL discovered for
        the specified package's version."""
+
     if pkg.list_url:
         try:
             versions = pkg.fetch_remote_versions()

@@ -142,10 +142,7 @@ class Parser(object):
 
     def setup(self, text):
         if isinstance(text, string_types):
-            if sys.version_info >= (2, 7, 9):
-                text = shlex.split(text)
-            else:
-                text = shlex.split(text.encode('utf-8'))
+            text = shlex.split(str(text))
         self.text = text
         self.push_tokens(self.lexer.lex(text))
 
