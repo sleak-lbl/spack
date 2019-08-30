@@ -14,6 +14,9 @@ class Graphviz(AutotoolsPackage):
     homepage = 'http://www.graphviz.org'
     git      = 'https://gitlab.com/graphviz/graphviz.git'
 
+    # This commit hash is tag='stable_release_2.42.0'
+    version('2.42.0', commit='19088b822bd11039dc805e724b30d0fd1b0912a6')
+
     # This commit hash is tag='stable_release_2.40.1'
     version('2.40.1', commit='67cd2e5121379a38e0801cc05cce5033f8a2a609')
 
