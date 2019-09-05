@@ -39,7 +39,7 @@ class Pgplot(Package):
 	# it generates has no 'install' target, so we have to copy the files to
 	# the install dir manually.
         mkdirp(prefix.lib)
-	files_to_install = ['grfont.dat', 'libpgplot.a', 'libpgplot.so',
+        files_to_install = ['grfont.dat', 'libpgplot.a', 'libpgplot.so',
                             'pgxwin_server', 'rgb.txt']
         for f in files_to_install:
           install(f, prefix.lib)
