@@ -129,7 +129,7 @@ def get_path_from_module_contents(text, module_name):
         pattern = r'\W(CRAY_)?LD_LIBRARY_PATH'
         if re.search(pattern, line):
             path = get_path_arg_from_module_line(line)
-            return path[:path.find('/lib')]
+            return path[:path.rfind('/lib')]
 
     # If it lists its package directory, return that
     for line in text:
@@ -141,20 +141,20 @@ def get_path_from_module_contents(text, module_name):
     for line in text:
         rpath = line.find('-rpath/')
         if rpath >= 0:
-            return line[rpath + 6:line.find('/lib')]
+            return line[rpath + 6:line.rfind('/lib')]
 
     # If it lists a -L instruction, use that
     for line in text:
         lib_paths = line.find('-L/')
         if lib_paths >= 0:
-            return line[lib_paths + 2:line.find('/lib')]
+            return line[lib_paths + 2:line.rfind('/lib')]
 
     # If it sets the PATH, use it
     for line in text:
         pattern = r'\WPATH'
         if re.search(pattern, line):
             path = get_path_arg_from_module_line(line)
-            return path[:path.find('/bin')]
+            return path[:path.rfind('/bin')]
 
     # Unable to find module path
     return None
