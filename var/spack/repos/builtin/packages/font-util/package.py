@@ -11,6 +11,7 @@ class FontUtil(AutotoolsPackage):
 
     homepage = "http://cgit.freedesktop.org/xorg/font/util"
     url      = "https://www.x.org/archive/individual/font/font-util-1.3.1.tar.gz"
+    version('1.3.2', sha256='f115a3735604de1e852a4bf669be0269d8ce8f21f8e0e74ec5934b31dadc1e76')
     version('1.3.1', 'd153a9af216e4498fa171faea2c82514')
 
     depends_on('autoconf', type='build')
@@ -40,7 +41,6 @@ class FontUtil(AutotoolsPackage):
         ['font-arabic-misc', '1.0.3', '918457df65ef93f09969c6ab01071789'],
         ['font-bh-100dpi', '1.0.3', '09e63a5608000531179e1ab068a35878'],
         ['font-bh-75dpi', '1.0.3', '88fec4ebc4a265684bff3abdd066f14f'],
-        ['font-bh-ttf', '1.0.3', '4ce741ec4edaa11cd38988d355a7578b'],
         ['font-bh-type1', '1.0.3', '62d4e8f782a6a0658784072a5df5ac98'],
         ['font-bh-lucidatypewriter-100dpi', '1.0.3',
          '5f716f54e497fb4ec1bb3a5d650ac6f7'],
