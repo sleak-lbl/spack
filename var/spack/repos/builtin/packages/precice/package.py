@@ -19,6 +19,8 @@ class Precice(CMakePackage):
     maintainers = ['fsimonis', 'MakisH']
 
     version('develop', branch='develop')
+    version('1.6.1', sha256='7d0c54faa2c69e52304f36608d93c408629868f16f3201f663a0f9b2008f0763')
+    version('1.6.0', sha256='c3b16376fda9eb3449adb6cc3c1e267c3dc792a5d118e37d93a32a59b5a4bc6f')
     version('1.5.2', sha256='051e0d7655a91f8681901e5c92812e48f33a5779309e2f104c99f5a687e1a418')
     version('1.5.1', sha256='fbe151f1a9accf9154362c70d15254935d4f594d189982c3a99fdb3dd9d9e665')
     version('1.5.0', sha256='a2a794becd08717e3049252134ae35692fed71966ed32e22cca796a169c16c3e')
@@ -29,7 +31,7 @@ class Precice(CMakePackage):
     # Skip version 1.1.1 entirely, the cmake was lacking install.
 
     variant('mpi', default=True, description='Enable MPI support')
-    variant('petsc', default=False, description='Enable PETSc support')
+    variant('petsc', default=True, description='Enable PETSc support')
     variant('python', default=False, description='Enable Python support')
     variant('shared', default=True, description='Build shared libraries')
 
@@ -45,6 +47,13 @@ class Precice(CMakePackage):
     depends_on('python@2.7:2.8', when='+python', type=('build', 'run'))
     # numpy 1.17+ requires Python 3
     depends_on('py-numpy@:1.16', when='+python', type=('build', 'run'))
+
+    # We require C++11 compiler support as well as
+    # library support for time manipulators (N2071, N2072)
+    conflicts('%gcc@:4')
+    conflicts('%clang@:3.7')
+    conflicts('%intel@:14')
+    conflicts('%pgi@:14')
 
     def cmake_args(self):
         """Populate cmake arguments for precice."""
