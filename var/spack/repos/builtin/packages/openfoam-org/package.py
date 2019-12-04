@@ -62,11 +62,11 @@ class OpenfoamOrg(Package):
     git      = "https://github.com/OpenFOAM/OpenFOAM-dev.git"
 
     version('develop', branch='master')
-    version('5.0', 'cd8c5bdd3ff39c34f61747c8e55f59d1',
+    version('5.0', sha256='9057d6a8bb9fa18802881feba215215699065e0b3c5cdd0c0e84cb29c9916c89',
             url=baseurl + '/OpenFOAM-5.x/archive/version-5.0.tar.gz')
-    version('4.1', 'afd7d8e66e7db0ffaf519b14f1a8e1d4',
+    version('4.1', sha256='2de18de64e7abdb1b649ad8e9d2d58b77a2b188fb5bcb6f7c2a038282081fd31',
             url=baseurl + '/OpenFOAM-4.x/archive/version-4.1.tar.gz')
-    version('2.4.0', 'ad7d8b7b0753655b2b6fd9e92eefa92a',
+    version('2.4.0', sha256='9529aa7441b64210c400c019dcb2e0410fcfd62a6f62d23b6c5994c4753c4465',
             url=baseurl + '/OpenFOAM-2.4.x/archive/version-2.4.0.tar.gz')
 
     variant('int64', default=False,
@@ -126,24 +126,24 @@ class OpenfoamOrg(Package):
             settings['label-size'] = False
         return settings
 
-    def setup_environment(self, spack_env, run_env):
+    def setup_run_environment(self, env):
         # This should be similar to the openfoam package,
         # but sourcing the etc/bashrc here seems to exit with an error.
         # ... this needs to be examined in more detail.
         #
         # Minimal environment only.
-        run_env.set('FOAM_PROJECT_DIR', self.projectdir)
-        run_env.set('WM_PROJECT_DIR', self.projectdir)
+        env.set('FOAM_PROJECT_DIR', self.projectdir)
+        env.set('WM_PROJECT_DIR', self.projectdir)
         for d in ['wmake', self.archbin]:  # bin already added automatically
-            run_env.prepend_path('PATH', join_path(self.projectdir, d))
+            env.prepend_path('PATH', join_path(self.projectdir, d))
 
-    def setup_dependent_environment(self, spack_env, run_env, dependent_spec):
+    def setup_dependent_build_environment(self, env, dependent_spec):
         """Location of the OpenFOAM project directory.
         This is identical to the WM_PROJECT_DIR value, but we avoid that
         variable since it would mask the normal OpenFOAM cleanup of
         previous versions.
         """
-        spack_env.set('FOAM_PROJECT_DIR', self.projectdir)
+        env.set('FOAM_PROJECT_DIR', self.projectdir)
 
     @property
     def projectdir(self):

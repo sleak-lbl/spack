@@ -20,3 +20,5 @@ class Diffutils(AutotoolsPackage):
 
     def setup_environment(self, spack_env, run_env):
         spack_env.set('HUGETLB_VERBOSE', 0)
+
+    depends_on('libiconv')

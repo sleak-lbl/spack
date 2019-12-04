@@ -13,8 +13,8 @@ class Libffi(AutotoolsPackage):
     run time."""
     homepage = "https://sourceware.org/libffi/"
 
-    version('3.2.1', '83b89587607e3eb65c70d361f13bab43',
-            url="https://www.mirrorservice.org/sites/sourceware.org/pub/libffi/libffi-3.2.1.tar.gz")
+    version('3.2.1', sha256='d06ebb8e1d9a22d19e38d63fdb83954253f39bedc5d46232a05645685722ca37',                                                                    
+            url="https://sourceware.org/pub/libffi/libffi-3.2.1.tar.gz")
     variant("shared", default=True, description="Enable shared libs")
 
     def configure_args(self):
