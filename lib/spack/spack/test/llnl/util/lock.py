@@ -43,6 +43,8 @@ actually on a shared filesystem.
 
 """
 import collections
+import errno
+import fcntl
 import os
 import socket
 import shutil
@@ -51,13 +53,14 @@ import traceback
 import glob
 import getpass
 from contextlib import contextmanager
-from multiprocessing import Process, Queue
+from multiprocessing import Queue
 
 import pytest
 
 import llnl.util.lock as lk
 import llnl.util.multiproc as mp
 from llnl.util.filesystem import touch
+from llnl.util.lang import fork_context
 
 
 #
@@ -214,7 +217,7 @@ def local_multiproc_test(*functions, **kwargs):
     b = mp.Barrier(len(functions), timeout=barrier_timeout)
 
     args = (b,) + tuple(kwargs.get('extra_args', ()))
-    procs = [Process(target=f, args=args, name=f.__name__)
+    procs = [fork_context.Process(target=f, args=args, name=f.__name__)
              for f in functions]
 
     for p in procs:
@@ -1240,3 +1243,81 @@ def test_lock_in_current_directory(tmpdir):
                 pass
             with lk.WriteTransaction(lock):
                 pass
+
+
+def test_attempts_str():
+    assert lk._attempts_str(0, 0) == ''
+    assert lk._attempts_str(0.12, 1) == ''
+    assert lk._attempts_str(12.345, 2) == ' after 12.35s and 2 attempts'
+
+
+def test_lock_str():
+    lock = lk.Lock('lockfile')
+    lockstr = str(lock)
+    assert 'lockfile[0:0]' in lockstr
+    assert 'timeout=None' in lockstr
+    assert '#reads=0, #writes=0' in lockstr
+
+
+def test_downgrade_write_okay(tmpdir):
+    """Test the lock write-to-read downgrade operation."""
+    with tmpdir.as_cwd():
+        lock = lk.Lock('lockfile')
+        lock.acquire_write()
+        lock.downgrade_write_to_read()
+        assert lock._reads == 1
+        assert lock._writes == 0
+
+
+def test_downgrade_write_fails(tmpdir):
+    """Test failing the lock write-to-read downgrade operation."""
+    with tmpdir.as_cwd():
+        lock = lk.Lock('lockfile')
+        lock.acquire_read()
+        msg = 'Cannot downgrade lock from write to read on file: lockfile'
+        with pytest.raises(lk.LockDowngradeError, match=msg):
+            lock.downgrade_write_to_read()
+
+
+@pytest.mark.parametrize("err_num,err_msg",
+                         [(errno.EACCES, "Fake EACCES error"),
+                          (errno.EAGAIN, "Fake EAGAIN error"),
+                          (errno.ENOENT, "Fake ENOENT error")])
+def test_poll_lock_exception(tmpdir, monkeypatch, err_num, err_msg):
+    """Test poll lock exception handling."""
+    def _lockf(fd, cmd, len, start, whence):
+        raise IOError(err_num, err_msg)
+
+    with tmpdir.as_cwd():
+        lockfile = 'lockfile'
+        lock = lk.Lock(lockfile)
+
+        touch(lockfile)
+
+        monkeypatch.setattr(fcntl, 'lockf', _lockf)
+
+        if err_num in [errno.EAGAIN, errno.EACCES]:
+            assert not lock._poll_lock(fcntl.LOCK_EX)
+        else:
+            with pytest.raises(IOError, match=err_msg):
+                lock._poll_lock(fcntl.LOCK_EX)
+
+
+def test_upgrade_read_okay(tmpdir):
+    """Test the lock read-to-write upgrade operation."""
+    with tmpdir.as_cwd():
+        lock = lk.Lock('lockfile')
+        lock.acquire_read()
+        lock.upgrade_read_to_write()
+        assert lock._reads == 0
+        assert lock._writes == 1
+
+
+def test_upgrade_read_fails(tmpdir):
+    """Test failing the lock read-to-write upgrade operation."""
+    with tmpdir.as_cwd():
+        lock = lk.Lock('lockfile')
+        lock.acquire_write()
+        msg = 'Cannot upgrade lock from read to write on file: lockfile'
+        with pytest.raises(lk.LockUpgradeError, match=msg):
+            lock.upgrade_read_to_write()

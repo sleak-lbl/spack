@@ -25,6 +25,14 @@ It is recommended that the following be put in your ``.bashrc`` file:
 
     alias less='less -R'
 
+If you do not see colorized output when using ``less -R`` it is because color
+is being disabled in the piped output. In this case, tell spack to force
+colorized output.
+
+.. code-block:: console
+
+    $ spack --color always | less -R
+
 --------------------------
 Listing available packages
 --------------------------
@@ -45,7 +53,7 @@ can install:
 .. command-output:: spack list
    :ellipsis: 10
 
-There are thosands of them, so we've truncated the output above, but you
+There are thousands of them, so we've truncated the output above, but you
 can find a :ref:`full list here <package-list>`.
 Packages are listed by name in alphabetical order.
 A pattern to match with no wildcards, ``*`` or ``?``,
@@ -267,7 +275,7 @@ the ``spack gc`` ("garbage collector") command, which will uninstall all unneede
    -- linux-ubuntu18.04-broadwell / gcc@9.0.1 ----------------------
    hdf5@1.10.5  libiconv@1.16  libpciaccess@0.13.5  libszip@2.1.1  libxml2@2.9.9  mpich@3.3.2  openjpeg@2.3.1  xz@5.2.4  zlib@1.2.11
 
-In the example above Spack went through all the packages in the DB
+In the example above Spack went through all the packages in the package database
 and removed everything that is not either:
 
 1. A package installed upon explicit request of the user
@@ -321,85 +329,6 @@ the tarballs in question to it (see :ref:`mirrors`):
 
        $ spack install galahad
 
------------------------------
-Deprecating insecure packages
------------------------------
-
-``spack deprecate`` allows for the removal of insecure packages with
-minimal impact to their dependents.
-
-.. warning::
-
-  The ``spack deprecate`` command is designed for use only in
-  extraordinary circumstances. This is a VERY big hammer to be used
-  with care.
-
-The ``spack deprecate`` command will remove one package and replace it
-with another by replacing the deprecated package's prefix with a link
-to the deprecator package's prefix.
-
-.. warning::
-
-  The ``spack deprecate`` command makes no promises about binary
-  compatibility. It is up to the user to ensure the deprecator is
-  suitable for the deprecated package.
-
-Spack tracks concrete deprecated specs and ensures that no future packages
-concretize to a deprecated spec.
-
-The first spec given to the ``spack deprecate`` command is the package
-to deprecate. It is an abstract spec that must describe a single
-installed package. The second spec argument is the deprecator
-spec. By default it must be an abstract spec that describes a single
-installed package, but with the ``-i/--install-deprecator`` it can be
-any abstract spec that Spack will install and then use as the
-deprecator. The ``-I/--no-install-deprecator`` option will ensure
-the default behavior.
-
-By default, ``spack deprecate`` will deprecate all dependencies of the
-deprecated spec, replacing each by the dependency of the same name in
-the deprecator spec. The ``-d/--dependencies`` option will ensure the
-default, while the ``-D/--no-dependencies`` option will deprecate only
-the root of the deprecate spec in favor of the root of the deprecator
-spec.
-
-``spack deprecate`` can use symbolic links or hard links. The default
-behavior is symbolic links, but the ``-l/--link-type`` flag can take
-options ``hard`` or ``soft``.
-
------------------------
-Verifying installations
------------------------
-
-The ``spack verify`` command can be used to verify the validity of
-Spack-installed packages any time after installation.
-
-At installation time, Spack creates a manifest of every file in the
-installation prefix. For links, Spack tracks the mode, ownership, and
-destination. For directories, Spack tracks the mode, and
-ownership. For files, Spack tracks the mode, ownership, modification
-time, hash, and size. The Spack verify command will check, for every
-file in each package, whether any of those attributes have changed. It
-will also check for newly added files or deleted files from the
-installation prefix. Spack can either check all installed packages
-using the `-a,--all` or accept specs listed on the command line to
-verify.
-
-The ``spack verify`` command can also verify for individual files that
-they haven't been altered since installation time. If the given file
-is not in a Spack installation prefix, Spack will report that it is
-not owned by any package. To check individual files instead of specs,
-use the ``-f,--files`` option.
-
-Spack installation manifests are part of the tarball signed by Spack
-for binary package distribution. When installed from a binary package,
-Spack uses the packaged installation manifest instead of creating one
-at install time.
-
-The ``spack verify`` command also accepts the ``-l,--local`` option to
-check only local packages (as opposed to those used transparently from
-``upstream`` spack instances) and the ``-j,--json`` option to output
-machine-readable json data for any errors.
 
 -------------------------
 Seeing installed packages
@@ -619,8 +548,8 @@ output metadata on specs and all dependencies as json:
        "target": "x86_64"
       },
       "compiler": {
-       "name": "clang",
-       "version": "10.0.0-apple"
+       "name": "apple-clang",
+       "version": "10.0.0"
       },
       "namespace": "builtin",
       "parameters": {
@@ -668,6 +597,93 @@ structured the way you want:
       "hash": "zvaa4lhlhilypw5quj3akyd3apbq5gap"
     }
 
+
+------------------------
+Using installed packages
+------------------------
+
+There are several different ways to use Spack packages once you have
+installed them. As you've seen, spack packages are installed into long
+paths with hashes, and you need a way to get them into your path. The
+easiest way is to use :ref:`spack load <cmd-spack-load>`, which is
+described in the next section.
+
+Some more advanced ways to use Spack packages include:
+
+* :ref:`environments <environments>`, which you can use to bundle a
+  number of related packages to "activate" all at once, and
+* :ref:`environment modules <modules>`, which are commonly used on
+  supercomputing clusters. Spack generates module files for every
+  installation automatically, and you can customize how this is done.
+
+.. _cmd-spack-load:
+
+^^^^^^^^^^^^^^^^^^^^^^^
+``spack load / unload``
+^^^^^^^^^^^^^^^^^^^^^^^
+
+If you have :ref:`shell support <shell-support>` enabled you can use the
+``spack load`` command to quickly get a package on your ``PATH``.
+
+For example this will add the ``mpich`` package built with ``gcc`` to
+your path:
+
+.. code-block:: console
+
+   $ spack install mpich %gcc@4.4.7
+
+   # ... wait for install ...
+
+   $ spack load mpich %gcc@4.4.7
+   $ which mpicc
+   ~/spack/opt/linux-debian7-x86_64/gcc@4.4.7/mpich@3.0.4/bin/mpicc
+
+These commands will add appropriate directories to your ``PATH``,
+``MANPATH``, ``CPATH``, and ``LD_LIBRARY_PATH``.  When you no longer
+want to use a package, you can type unload or unuse similarly:
+
+.. code-block:: console
+
+   $ spack unload mpich %gcc@4.4.7
+
+
+"""""""""""""""
+Ambiguous specs
+"""""""""""""""
+
+If a spec used with load/unload or is ambiguous (i.e. more than one
+installed package matches it), then Spack will warn you:
+
+.. code-block:: console
+
+   $ spack load libelf
+   ==> Error: libelf matches multiple packages.
+   Matching packages:
+     qmm4kso libelf@0.8.13%gcc@4.4.7 arch=linux-debian7-x86_64
+     cd2u6jt libelf@0.8.13%intel@15.0.0 arch=linux-debian7-x86_64
+   Use a more specific spec
+
+You can either type the ``spack load`` command again with a fully
+qualified argument, or you can add just enough extra constraints to
+identify one package.  For example, above, the key differentiator is
+that one ``libelf`` is built with the Intel compiler, while the other
+used ``gcc``.  You could therefore just type:
+
+.. code-block:: console
+
+   $ spack load libelf %intel
+
+To identify just the one built with the Intel compiler. If you want to be
+*very* specific, you can load it by its hash. For example, to load the
+first ``libelf`` above, you would run:
+
+.. code-block:: console
+
+   $ spack load /qmm4kso
+
+We'll learn more about Spack's spec syntax in the next section.
+
+
 .. _sec-specs:
 
 --------------------
@@ -687,11 +703,11 @@ Here is an example of a much longer spec than we've seen thus far:
 
 .. code-block:: none
 
-   mpileaks @1.2:1.4 %gcc@4.7.5 +debug -qt arch=bgq_os ^callpath @1.1 %gcc@4.7.2
+   mpileaks @1.2:1.4 %gcc@4.7.5 +debug -qt target=x86_64 ^callpath @1.1 %gcc@4.7.2
 
 If provided to ``spack install``, this will install the ``mpileaks``
 library at some version between ``1.2`` and ``1.4`` (inclusive),
-built using ``gcc`` at version 4.7.5 for the Blue Gene/Q architecture,
+built using ``gcc`` at version 4.7.5 for a generic ``x86_64`` architecture,
 with debug options enabled, and without Qt support.  Additionally, it
 says to link it with the ``callpath`` library (which it depends on),
 and to build callpath with ``gcc`` 4.7.2.  Most specs will not be as
@@ -854,7 +870,7 @@ Variants are named options associated with a particular package. They are
 optional, as each package must provide default values for each variant it
 makes available. Variants can be specified using
 a flexible parameter syntax ``name=<value>``. For example,
-``spack install libelf debug=True`` will install libelf build with debug
+``spack install libelf debug=True`` will install libelf built with debug
 flags. The names of particular variants available for a package depend on
 what was provided by the package author. ``spack info <package>`` will
 provide information on what build variants are available.
@@ -917,7 +933,7 @@ contains any spaces. Any of ``cppflags=-O3``, ``cppflags="-O3"``,
 ``cppflags='-O3'``, and ``cppflags="-O3 -fPIC"`` are acceptable, but
 ``cppflags=-O3 -fPIC`` is not. Additionally, if the value of the
 compiler flags is not the last thing on the line, it must be followed
-by a space. The commmand ``spack install libelf cppflags="-O3"%intel``
+by a space. The command ``spack install libelf cppflags="-O3"%intel``
 will be interpreted as an attempt to set ``cppflags="-O3%intel"``.
 
 The six compiler flags are injected in the order of implicit make commands
@@ -1067,13 +1083,13 @@ of failing:
 In the snippet above, for instance, the microarchitecture was demoted to ``haswell`` when
 compiling with ``gcc@4.8`` since support to optimize for ``broadwell`` starts from ``gcc@4.9:``.
 
-Finally if Spack has no information to match compiler and target, it will
+Finally, if Spack has no information to match compiler and target, it will
 proceed with the installation but avoid injecting any microarchitecture
 specific flags.
 
 .. warning::
 
-   Currently Spack doesn't print any warning to the user if it has no information
+   Currently, Spack doesn't print any warning to the user if it has no information
    on which optimization flags should be used for a given compiler. This behavior
    might change in the future.
 
@@ -1083,7 +1099,7 @@ specific flags.
 Virtual dependencies
 --------------------
 
-The dependence graph for ``mpileaks`` we saw above wasn't *quite*
+The dependency graph for ``mpileaks`` we saw above wasn't *quite*
 accurate.  ``mpileaks`` uses MPI, which is an interface that has many
 different implementations.  Above, we showed ``mpileaks`` and
 ``callpath`` depending on ``mpich``, which is one *particular*
@@ -1226,6 +1242,90 @@ add a version specifier to the spec:
 Notice that the package versions that provide insufficient MPI
 versions are now filtered out.
 
+
+-----------------------------
+Deprecating insecure packages
+-----------------------------
+
+``spack deprecate`` allows for the removal of insecure packages with
+minimal impact to their dependents.
+
+.. warning::
+
+  The ``spack deprecate`` command is designed for use only in
+  extraordinary circumstances. This is a VERY big hammer to be used
+  with care.
+
+The ``spack deprecate`` command will remove one package and replace it
+with another by replacing the deprecated package's prefix with a link
+to the deprecator package's prefix.
+
+.. warning::
+
+  The ``spack deprecate`` command makes no promises about binary
+  compatibility. It is up to the user to ensure the deprecator is
+  suitable for the deprecated package.
+
+Spack tracks concrete deprecated specs and ensures that no future packages
+concretize to a deprecated spec.
+
+The first spec given to the ``spack deprecate`` command is the package
+to deprecate. It is an abstract spec that must describe a single
+installed package. The second spec argument is the deprecator
+spec. By default it must be an abstract spec that describes a single
+installed package, but with the ``-i/--install-deprecator`` it can be
+any abstract spec that Spack will install and then use as the
+deprecator. The ``-I/--no-install-deprecator`` option will ensure
+the default behavior.
+
+By default, ``spack deprecate`` will deprecate all dependencies of the
+deprecated spec, replacing each by the dependency of the same name in
+the deprecator spec. The ``-d/--dependencies`` option will ensure the
+default, while the ``-D/--no-dependencies`` option will deprecate only
+the root of the deprecate spec in favor of the root of the deprecator
+spec.
+
+``spack deprecate`` can use symbolic links or hard links. The default
+behavior is symbolic links, but the ``-l/--link-type`` flag can take
+options ``hard`` or ``soft``.
+
+-----------------------
+Verifying installations
+-----------------------
+
+The ``spack verify`` command can be used to verify the validity of
+Spack-installed packages any time after installation.
+
+At installation time, Spack creates a manifest of every file in the
+installation prefix. For links, Spack tracks the mode, ownership, and
+destination. For directories, Spack tracks the mode, and
+ownership. For files, Spack tracks the mode, ownership, modification
+time, hash, and size. The Spack verify command will check, for every
+file in each package, whether any of those attributes have changed. It
+will also check for newly added files or deleted files from the
+installation prefix. Spack can either check all installed packages
+using the `-a,--all` or accept specs listed on the command line to
+verify.
+
+The ``spack verify`` command can also verify for individual files that
+they haven't been altered since installation time. If the given file
+is not in a Spack installation prefix, Spack will report that it is
+not owned by any package. To check individual files instead of specs,
+use the ``-f,--files`` option.
+
+Spack installation manifests are part of the tarball signed by Spack
+for binary package distribution. When installed from a binary package,
+Spack uses the packaged installation manifest instead of creating one
+at install time.
+
+The ``spack verify`` command also accepts the ``-l,--local`` option to
+check only local packages (as opposed to those used transparently from
+``upstream`` spack instances) and the ``-j,--json`` option to output
+machine-readable json data for any errors.
+
+
+.. _extensions:
+
 ---------------------------
 Extensions & Python support
 ---------------------------
@@ -1233,8 +1333,7 @@ Extensions & Python support
 Spack's installation model assumes that each package will live in its
 own install prefix.  However, certain packages are typically installed
 *within* the directory hierarchy of other packages.  For example,
-modules in interpreted languages like `Python
-<https://www.python.org>`_ are typically installed in the
+`Python <https://www.python.org>`_ packages are typically installed in the
 ``$prefix/lib/python-2.7/site-packages`` directory.
 
 Spack has support for this type of installation as well.  In Spack,
@@ -1410,12 +1509,12 @@ packages listed as activated:
    py-nose@1.3.4  py-numpy@1.9.1  py-setuptools@11.3.1
 
 Now, when a user runs python, ``numpy`` will be available for import
-*without* the user having to explicitly loaded.  ``python@2.7.8`` now
+*without* the user having to explicitly load it.  ``python@2.7.8`` now
 acts like a system Python installation with ``numpy`` installed inside
 of it.
 
 Spack accomplishes this by symbolically linking the *entire* prefix of
-the ``py-numpy`` into the prefix of the ``python`` package.  To the
+the ``py-numpy`` package into the prefix of the ``python`` package.  To the
 python interpreter, it looks like ``numpy`` is installed in the
 ``site-packages`` directory.
 

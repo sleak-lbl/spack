@@ -6,11 +6,11 @@
 from spack import *
 
 
-class Libx11(AutotoolsPackage):
+class Libx11(AutotoolsPackage, XorgPackage):
     """libX11 - Core X11 protocol client library."""
 
     homepage = "https://www.x.org/"
-    url      = "https://www.x.org/archive/individual/lib/libX11-1.6.7.tar.gz"
+    xorg_mirror_path = "lib/libX11-1.6.7.tar.gz"
 
     version('1.6.7', sha256='f62ab88c2a87b55e1dc338726a55bb6ed8048084fe6a3294a7ae324ca45159d1')
     version('1.6.5', sha256='3abce972ba62620611fab5b404dafb852da3da54e7c287831c30863011d28fb3')
@@ -26,6 +26,15 @@ class Libx11(AutotoolsPackage):
     depends_on('pkgconfig', type='build')
     depends_on('util-macros', type='build')
     depends_on('perl', type='build')
+
+    def configure_args(self):
+        config_args = []
+
+        # -Werror flags are not properly interpreted by the NVIDIA compiler
+        if self.spec.satisfies('%nvhpc'):
+            config_args.append('--disable-selective-werror')
+
+        return config_args
 
     def setup_dependent_build_environment(self, env, dependent_spec):
         env.prepend_path('XLOCALEDIR', self.prefix.share.X11.locale)
